@@ -1,0 +1,55 @@
+{
+  "manifest_version": 3,
+  "name": "Social Media Posts Crawler",
+  "version": "1.0.0",
+  "description": "Crawl posts from company social media pages",
+  "permissions": [
+    "activeTab",
+    "storage",
+    "scripting"
+  ],
+  "host_permissions": [
+    "https://twitter.com/*",
+    "https://x.com/*",
+    "https://linkedin.com/*",
+    "https://facebook.com/*",
+    "https://instagram.com/*",
+    "https://reddit.com/*",
+    "https://old.reddit.com/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Posts Crawler"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://twitter.com/*",
+        "https://x.com/*",
+        "https://linkedin.com/*",
+        "https://facebook.com/*",
+        "https://instagram.com/*",
+        "https://reddit.com/*",
+        "https://old.reddit.com/*"
+      ],
+      "js": [
+        "db.js", 
+        "crawlers/base-crawler.js",
+        "crawlers/twitter-crawler.js",
+        "crawlers/linkedin-crawler.js", 
+        "crawlers/reddit-crawler.js",
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["db.js"],
+      "matches": ["<all_urls>"]
+    }
+  ],
+  "background": {
+    "service_worker": "background.js"
+  }
+}
