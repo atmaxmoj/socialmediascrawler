@@ -35,6 +35,13 @@ class BaseCrawler {
     return btoa(content).replace(/[^a-zA-Z0-9]/g, '').substring(0, 16);
   }
 
+  // Helper method to format console output with fixed width
+  formatLogText(text, maxWidth = 80) {
+    if (!text) return '';
+    const cleanText = text.replace(/\s+/g, ' ').trim();
+    return cleanText.length > maxWidth ? cleanText.substring(0, maxWidth - 3) + '...' : cleanText;
+  }
+
   parseNumber(text) {
     if (!text) return 0;
     
@@ -98,7 +105,7 @@ class BaseCrawler {
         // Continue without sending message - this is not critical for functionality
       }
       
-      console.log(`[${this.platform}] Post saved successfully:`, postData.text.substring(0, 100) + '...');
+      console.log(`[${this.platform}] Post saved: ${this.formatLogText(postData.text, 60)}`);
       return true;
     } catch (error) {
       console.error(`[${this.platform}] Error saving post:`, error);
@@ -211,7 +218,8 @@ class BaseCrawler {
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
         font-size: 14px;
         color: white;
-        min-width: 280px;
+        width: 320px;
+        max-width: 320px;
         backdrop-filter: blur(10px);
         border: 1px solid rgba(255, 255, 255, 0.1);
       }
@@ -394,25 +402,29 @@ class BaseCrawler {
   }
 
   updateCurrentContent(text) {
-    console.log(`[${this.platform}] updateCurrentContent called with text:`, text ? text.substring(0, 100) : 'null/empty');
-    
     if (this.currentContentElement && text) {
-      // Limit to 50 characters and add ellipsis
-      const displayText = text.length > 50 ? text.substring(0, 50) + '...' : text;
+      // Calculate appropriate text length based on control panel width (320px)
+      // With 11px font size and padding, approximately 40-45 characters fit well
+      const maxChars = this.calculateMaxCharsForWidth();
+      const displayText = this.formatLogText(text, maxChars);
       this.currentContentElement.textContent = displayText;
-      console.log(`[${this.platform}] Updated current content element with:`, displayText);
       
       // Show the current content card
       const card = document.getElementById('current-content-card');
       if (card) {
         card.style.display = 'block';
-        console.log(`[${this.platform}] Showed current content card`);
-      } else {
-        console.error(`[${this.platform}] Could not find current content card element`);
       }
-    } else {
-      console.warn(`[${this.platform}] updateCurrentContent failed - element:`, !!this.currentContentElement, 'text:', !!text);
     }
+  }
+
+  // Calculate maximum characters that fit in the current content text area
+  calculateMaxCharsForWidth() {
+    // Control panel width is 320px, with 16px padding on each side = 288px inner width
+    // Current content card has 10px padding on each side = 268px text area width  
+    // With 11px font size, roughly 6-7 pixels per character
+    // 268px / 6.5px ≈ 41 characters, but allow for 2-line display with -webkit-line-clamp: 2
+    // So we can accommodate roughly 80-85 characters total, but keep it readable at ~45 per effective line
+    return 45;
   }
 
   hideCurrentContent() {
@@ -426,7 +438,6 @@ class BaseCrawler {
     const indicator = document.getElementById('already-recorded-indicator');
     if (indicator) {
       indicator.style.display = 'block';
-      console.log(`[${this.platform}] Showed "Already Recorded" indicator`);
     }
   }
 
@@ -434,7 +445,6 @@ class BaseCrawler {
     const indicator = document.getElementById('already-recorded-indicator');
     if (indicator) {
       indicator.style.display = 'none';
-      console.log(`[${this.platform}] Hid "Already Recorded" indicator`);
     }
   }
 
@@ -519,30 +529,27 @@ class BaseCrawler {
     const topPost = this.getTopPostInViewport(posts);
     
     if (!topPost) {
-      console.log(`[${this.platform}] No post found at top of viewport`);
       return false;
     }
-    
-    console.log(`[${this.platform}] Processing top post in viewport`);
     
     // Always update "Currently Viewing" to show what's at the top
     const displayData = this.extractPostDataForDisplay(topPost);
     if (displayData && displayData.text) {
       this.updateCurrentContent(displayData.text);
-      console.log(`[${this.platform}] Updated "Currently Viewing" to: ${displayData.text.substring(0, 50)}...`);
     }
     
     // Try to extract and save the post if not already crawled
     const postData = this.extractPostData(topPost);
-    if (postData && postData.text && !this.crawledPosts.has(postData.id)) {
-      console.log(`[${this.platform}] Recording new top post: ${postData.text.substring(0, 50)}...`);
-      this.hideAlreadyRecordedIndicator(); // Hide indicator for new posts
-      this.savePost(postData);
-      return true; // Successfully processed new post
-    } else if (postData && this.crawledPosts.has(postData.id)) {
-      console.log(`[${this.platform}] Top post already recorded, showing indicator`);
-      this.showAlreadyRecordedIndicator(); // Show indicator for already recorded posts
-      return false; // Already processed, should move to next
+    if (postData) {
+      if (postData.text && !this.crawledPosts.has(postData.id)) {
+        console.log(`[${this.platform}] Recording new post: ${this.formatLogText(postData.text, 50)}`);
+        this.hideAlreadyRecordedIndicator(); // Hide indicator for new posts
+        this.savePost(postData);
+        return true; // Successfully processed new post
+      } else if (this.crawledPosts.has(postData.id)) {
+        this.showAlreadyRecordedIndicator(); // Show indicator for already recorded posts
+        return false; // Already processed, should move to next
+      }
     }
     
     return false;
@@ -630,15 +637,11 @@ class BaseCrawler {
   autoScroll() {
     if (!this.isRunning) return;
     
-    console.log(`[${this.platform}] Auto-scroll cycle starting...`);
-    
     // Step 1: Process the current top post (show currently viewing + record if new)
     const processedNewPost = this.processTopPost();
     
     // Step 2: If current post was already processed, find and scroll to next post
     if (!processedNewPost) {
-      console.log(`[${this.platform}] Current top post already processed, finding next post...`);
-      
       const nextPost = this.findNextPostToScrollTo();
       
       if (nextPost) {
@@ -647,23 +650,26 @@ class BaseCrawler {
         const postTop = postRect.top + window.scrollY;
         const targetScrollY = postTop - 50; // Leave some margin at the top
         
-        console.log(`[${this.platform}] Scrolling to bring next post to top: ${window.scrollY} -> ${targetScrollY}`);
-        
-        window.scrollTo({
-          top: targetScrollY,
-          behavior: 'smooth'
-        });
+        // Add safeguard to prevent infinite scrolling to same position
+        if (Math.abs(targetScrollY - window.scrollY) < 10) {
+          window.scrollTo({
+            top: window.scrollY + 200,
+            behavior: 'smooth'
+          });
+        } else {
+          window.scrollTo({
+            top: targetScrollY,
+            behavior: 'smooth'
+          });
+        }
         
         // After scroll completes, process the newly positioned top post
         setTimeout(() => {
-          console.log(`[${this.platform}] Scroll completed, processing newly positioned top post...`);
           this.processTopPost();
         }, 1500); // Wait for smooth scroll to complete
         
       } else {
         // No next post found, scroll down to load more content
-        console.log(`[${this.platform}] No next post found, loading more content...`);
-        
         const currentScrollY = window.scrollY;
         const viewportHeight = window.innerHeight;
         const scrollAmount = viewportHeight * 0.8;
@@ -675,25 +681,29 @@ class BaseCrawler {
           behavior: 'smooth'
         });
         
-        console.log(`[${this.platform}] Loading more content: ${currentScrollY} -> ${targetScroll}`);
-        
         // Check if new content loaded after scroll
         setTimeout(() => {
           const newDocumentHeight = document.documentElement.scrollHeight;
           
           if (newDocumentHeight === this.lastScrollHeight) {
-            this.noNewContentCount++;
-            console.log(`[${this.platform}] No new content loaded (${this.noNewContentCount}/5)`);
+            this.noNewContentCount++;            
+            // If we've been stuck for too long, try a different approach
+            if (this.noNewContentCount >= 5) {
+              console.warn(`[${this.platform}] Crawler appears stuck, attempting recovery...`);
+              this.noNewContentCount = 0;
+              // Try scrolling to the very bottom to trigger more content loading
+              window.scrollTo({
+                top: document.documentElement.scrollHeight,
+                behavior: 'smooth'
+              });
+            }
           } else {
             this.noNewContentCount = 0;
-            console.log(`[${this.platform}] New content loaded! Height: ${this.lastScrollHeight} -> ${newDocumentHeight}`);
           }
           
           this.lastScrollHeight = newDocumentHeight;
         }, 2000);
       }
-    } else {
-      console.log(`[${this.platform}] Successfully processed new post, continuing with current position`);
     }
   }
 
@@ -702,27 +712,17 @@ class BaseCrawler {
     const selectors = this.getSelectors();
     const posts = Array.from(document.querySelectorAll(selectors.postContainer));
     
-    console.log(`[${this.platform}] findNextPostToScrollTo: Found ${posts.length} total posts`);
-    
     // First, find the current top post in viewport
     const currentTopPost = this.getTopPostInViewport(posts);
     
     if (!currentTopPost) {
-      console.log(`[${this.platform}] No current top post found, returning first post`);
       return posts.length > 0 ? posts[0] : null;
-    }
-    
-    // Log current post info for debugging
-    const currentPostData = this.extractPostDataForDisplay(currentTopPost);
-    if (currentPostData) {
-      console.log(`[${this.platform}] Current top post: "${currentPostData.text ? currentPostData.text.substring(0, 50) : 'no text'}..."`);
     }
     
     // Find the index of current top post in the DOM order
     const currentIndex = posts.indexOf(currentTopPost);
     
     if (currentIndex === -1) {
-      console.log(`[${this.platform}] Current top post not found in posts array`);
       return null;
     }
     
@@ -730,24 +730,20 @@ class BaseCrawler {
     const nextIndex = currentIndex + 1;
     
     if (nextIndex < posts.length) {
-      const nextPost = posts[nextIndex];
-      
-      // Log next post info for debugging
-      const nextPostData = this.extractPostDataForDisplay(nextPost);
-      if (nextPostData) {
-        console.log(`[${this.platform}] Next post to scroll to: "${nextPostData.text ? nextPostData.text.substring(0, 50) : 'no text'}..."`);
-      }
-      
-      console.log(`[${this.platform}] Found next post in sequence (${currentIndex} -> ${nextIndex})`);
-      return nextPost;
+      return posts[nextIndex];
     } else {
-      console.log(`[${this.platform}] Already at last post (${currentIndex}/${posts.length}), no next post`);
       return null;
     }
   }
 
   async startCrawling() {
-    if (this.isRunning) return;
+    if (this.isRunning) {
+      console.warn(`[${this.platform}] startCrawling called but already running`);
+      return;
+    }
+    
+    // Clear any existing intervals/observers first to prevent duplicates
+    this.stopCrawling();
     
     this.isRunning = true;
     console.log(`[${this.platform}] Starting to crawl posts...`);
@@ -785,8 +781,6 @@ class BaseCrawler {
     // Start auto-scrolling to load more content  
     this.scrollInterval = setInterval(() => {
       if (this.isRunning) {
-        // Adjust scroll frequency based on content loading
-        const baseInterval = this.noNewContentCount >= 3 ? 8000 : 3000;
         this.autoScroll();
       }
     }, 3000); // Scroll every 3 seconds initially
@@ -797,6 +791,8 @@ class BaseCrawler {
         this.crawlVisiblePosts();
       }
     }, 10000); // Check every 10 seconds
+    
+    console.log(`[${this.platform}] Started crawler with intervals: scroll=${!!this.scrollInterval}, periodic=${!!this.crawlInterval}, observer=${!!this.observer}`);
   }
 
   stopCrawling() {

@@ -55,50 +55,7 @@ if (platform !== 'unknown') {
       console.log(`[${platform}] Control panel created`);
     }, 2000);
     
-    // For Twitter/X, log debugging info about current page structure
-    if (platform === 'twitter') {
-      setTimeout(() => {
-        console.log('[Twitter] === PAGE STRUCTURE DEBUG ===');
-        console.log('[Twitter] URL:', window.location.href);
-        console.log('[Twitter] DOM ready, analyzing structure...');
-        
-        // Test all possible tweet containers in 2025
-        const possibleSelectors = [
-          '[data-testid="tweet"]',
-          '[data-testid="cellInnerDiv"]',
-          'article[role="article"]',
-          'article[data-testid="tweet"]',
-          'article',
-          'div[data-testid="tweet"]',
-          '[role="article"]',
-          'div[role="article"]',
-          '.tweet',
-          '[data-tweet-id]'
-        ];
-        
-        possibleSelectors.forEach(sel => {
-          const elements = document.querySelectorAll(sel);
-          console.log(`[Twitter] Selector "${sel}": ${elements.length} elements`);
-          if (elements.length > 0) {
-            console.log(`[Twitter] First element with "${sel}":`, elements[0]);
-            // Check for text content in first element
-            const textEl = elements[0].querySelector('[data-testid="tweetText"], [lang], span[dir="auto"]');
-            if (textEl) {
-              console.log(`[Twitter] Sample text from "${sel}":`, textEl.textContent.substring(0, 100));
-            }
-          }
-        });
-        
-        // Check for specific tweet elements
-        const textElements = document.querySelectorAll('[data-testid="tweetText"], [lang], span[dir="auto"]');
-        console.log(`[Twitter] Text elements found: ${textElements.length}`);
-        
-        const userElements = document.querySelectorAll('[data-testid="User-Name"], [data-testid="UserName"]');
-        console.log(`[Twitter] User elements found: ${userElements.length}`);
-        
-        console.log('[Twitter] === END DEBUG ===');
-      }, 3000);
-    }
+    // Debug logging removed to reduce console noise
   } else {
     console.log(`[${platform}] Crawler not available for this platform`);
   }

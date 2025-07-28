@@ -21,7 +21,7 @@ class TwitterCrawler extends BaseCrawler {
         retweet: '[data-testid="retweet"] span[data-testid="app-text-transition-container"] span, [data-testid="retweet"] span span, [aria-label*="repost"] span',
         like: '[data-testid="like"] span[data-testid="app-text-transition-container"] span, [data-testid="like"] span span, [aria-label*="like"] span',
         bookmark: '[data-testid="bookmark"], [aria-label*="bookmark"]',
-        view: 'a[href*="/status/"] span[data-testid="app-text-transition-container"] span, [aria-label*="view"] span'
+        view: 'a[href*="/analytics"] span[data-testid="app-text-transition-container"] span, a[aria-label*="views"] span[data-testid="app-text-transition-container"] span, a[aria-label*="view"] span[data-testid="app-text-transition-container"] span, [data-testid="analytics"] span, [role="group"] a[href*="analytics"] span'
       },
       replies: {
         container: '[data-testid="tweet"] + div [data-testid="tweet"], article + article',
@@ -43,12 +43,8 @@ class TwitterCrawler extends BaseCrawler {
   extractPostData(postElement) {
     try {
       if (!postElement || !postElement.querySelector) {
-        console.warn('[Twitter] Invalid post element provided');
         return null;
       }
-      
-      const selectors = this.getSelectors();
-      console.log('[Twitter] Extracting post data from element:', postElement);
       
       // Extract text content using improved method
       const text = this.extractTextContent(postElement);
@@ -57,11 +53,8 @@ class TwitterCrawler extends BaseCrawler {
       const timestamp = this.extractTimestamp(postElement);
       const avatar = this.extractAvatar(postElement);
       
-      console.log('[Twitter] Extracted basic data:', { text: text.substring(0, 50), name: authorName, handle: authorHandle, time: timestamp });
-      
       // Skip if no meaningful content
       if (!text && !authorName) {
-        console.log('[Twitter] Skipping post - no text or author found');
         return null;
       }
       
@@ -69,7 +62,6 @@ class TwitterCrawler extends BaseCrawler {
       const uniqueId = this.createPostId(text, authorHandle || authorName, timestamp);
       
       if (this.crawledPosts.has(uniqueId)) {
-        console.log('[Twitter] Skipping post - already crawled');
         return null; // Already crawled
       }
       
@@ -107,7 +99,6 @@ class TwitterCrawler extends BaseCrawler {
         replies: this.extractTwitterReplies(postElement)
       };
       
-      console.log('[Twitter] Successfully created post data:', postData);
       return postData;
     } catch (error) {
       console.error('[Twitter] Error extracting post data:', error);
@@ -119,7 +110,6 @@ class TwitterCrawler extends BaseCrawler {
   extractPostDataForDisplay(postElement) {
     try {
       if (!postElement || !postElement.querySelector) {
-        console.warn('[Twitter] Invalid post element provided for display');
         return null;
       }
       
@@ -131,7 +121,6 @@ class TwitterCrawler extends BaseCrawler {
       
       // Skip if no meaningful content
       if (!text && !authorName) {
-        console.log('[Twitter] Skipping post for display - no text or author found');
         return null;
       }
       
@@ -158,23 +147,15 @@ class TwitterCrawler extends BaseCrawler {
   // Improved text extraction that handles media-rich posts
   extractTextContent(postElement) {
     try {
-      console.log('[Twitter] Starting text extraction for element:', postElement);
-      
       // Primary method: try tweetText selector first
       let textElement = postElement.querySelector('[data-testid="tweetText"]');
       if (textElement && textElement.textContent.trim()) {
-        const primaryText = textElement.textContent.trim();
-        console.log('[Twitter] Found text using primary method:', primaryText.substring(0, 50) + '...');
-        return primaryText;
+        return textElement.textContent.trim();
       }
-      
-      console.log('[Twitter] Primary text extraction failed, trying fallback methods...');
       
       // Fallback method 1: look for text in lang-attributed elements, excluding media containers
       const textElements = postElement.querySelectorAll('[lang] span, [lang] div');
       let combinedText = '';
-      
-      console.log(`[Twitter] Found ${textElements.length} lang-attributed elements`);
       
       for (const el of textElements) {
         // Skip if this element is inside media containers
@@ -192,12 +173,10 @@ class TwitterCrawler extends BaseCrawler {
       }
       
       if (combinedText) {
-        console.log('[Twitter] Found text using fallback method 1:', combinedText.substring(0, 50) + '...');
         return combinedText;
       }
       
       // Fallback method 2: try broader selectors
-      console.log('[Twitter] Fallback method 1 failed, trying broader selectors...');
       const broadSelectors = [
         '[role="group"] span',
         'article span',
@@ -229,12 +208,10 @@ class TwitterCrawler extends BaseCrawler {
         }
         
         if (broadText && broadText.length > 20) {
-          console.log(`[Twitter] Found text using broad selector ${selector}:`, broadText.substring(0, 50) + '...');
           return broadText;
         }
       }
       
-      console.log('[Twitter] All text extraction methods failed');
       return '';
     } catch (error) {
       console.error('[Twitter] Error extracting text content:', error);
@@ -352,7 +329,7 @@ class TwitterCrawler extends BaseCrawler {
         
         const el = element.querySelector(trimmedSelector);
         if (el) {
-          console.log(`[Twitter] Found element with selector: ${trimmedSelector}`);
+          // Element found - removed debug log
           
           try {
             if (attribute === 'textContent') {
@@ -371,7 +348,6 @@ class TwitterCrawler extends BaseCrawler {
         console.warn(`[Twitter] Selector failed: ${selector}`, e.message);
       }
     }
-    console.log(`[Twitter] No element found for selectors: ${selectors.join(', ')}`);
     return null;
   }
 
@@ -412,15 +388,59 @@ class TwitterCrawler extends BaseCrawler {
       const replyElement = postElement.querySelector(selectors.reply);
       const retweetElement = postElement.querySelector(selectors.retweet);
       const likeElement = postElement.querySelector(selectors.like);
-      const viewElement = postElement.querySelector(selectors.view);
       
       metrics.replies = this.parseNumber(replyElement?.textContent);
       metrics.retweets = this.parseNumber(retweetElement?.textContent);
       metrics.likes = this.parseNumber(likeElement?.textContent);
-      metrics.views = this.parseNumber(viewElement?.textContent);
+      
+      // Extract view counts - try multiple approaches
+      let viewElement = postElement.querySelector(selectors.view);
+      if (viewElement) {
+        metrics.views = this.parseNumber(viewElement.textContent);
+      } else {
+        // Fallback 1: Look for analytics link with aria-label containing "views"
+        const analyticsLink = postElement.querySelector('a[href*="analytics"][aria-label*="view"]');
+        if (analyticsLink) {
+          const ariaLabel = analyticsLink.getAttribute('aria-label');
+          const viewMatch = ariaLabel.match(/(\d+(?:[.,]\d+)*)\s*views?/i);
+          if (viewMatch) {
+            metrics.views = this.parseNumber(viewMatch[1]);
+          }
+        } else {
+          // Fallback 2: Look in engagement area (usually last metric after reply, retweet, like)
+          const engagementArea = postElement.querySelector('[role="group"]');
+          if (engagementArea) {
+            // Find all clickable elements with numbers
+            const clickableElements = engagementArea.querySelectorAll('a, button');
+            for (let i = clickableElements.length - 1; i >= 0; i--) {
+              const element = clickableElements[i];
+              const href = element.getAttribute('href');
+              const ariaLabel = element.getAttribute('aria-label');
+              
+              // Check if this looks like a view analytics link
+              if ((href && href.includes('analytics')) || 
+                  (ariaLabel && ariaLabel.toLowerCase().includes('view'))) {
+                const numberSpan = element.querySelector('span[data-testid="app-text-transition-container"] span');
+                if (numberSpan) {
+                  const viewText = numberSpan.textContent.trim();
+                  if (viewText && /^\d/.test(viewText)) {
+                    metrics.views = this.parseNumber(viewText);
+                    break;
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
       
       // Bookmark button doesn't usually show count
       metrics.bookmarks = postElement.querySelector(selectors.bookmark) ? 1 : 0;
+      
+      // Log metrics for debugging (only if views > 0 to avoid spam)
+      if (metrics.views > 0) {
+        console.log(`[Twitter] Extracted metrics: replies=${metrics.replies}, retweets=${metrics.retweets}, likes=${metrics.likes}, views=${metrics.views}`);
+      }
     } catch (error) {
       console.error('[Twitter] Error extracting metrics:', error);
     }

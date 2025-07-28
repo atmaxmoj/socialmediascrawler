@@ -311,4 +311,3 @@ class LinkedInCrawler extends BaseCrawler {
     return comments;
   }
 }
-}

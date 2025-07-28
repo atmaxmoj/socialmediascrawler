@@ -62,12 +62,38 @@ document.addEventListener('DOMContentLoaded', async function() {
         console.log('Scripts already injected:', alreadyInjected);
         
         if (alreadyInjected.hasCrawler) {
-          // Scripts already loaded, just refresh the page to clean up and re-inject
-          statusDiv.innerHTML = '<div class="icon">🔄</div>Refreshing page to reinitialize...';
-          await chrome.tabs.reload(tabId);
+          // Scripts already loaded, try to stop existing crawler first
+          statusDiv.innerHTML = '<div class="icon">⚠️</div>Crawler already running. Stopping existing instance...';
           
-          // Wait for page to reload
-          await new Promise(resolve => setTimeout(resolve, 2000));
+          try {
+            // Try to stop the existing crawler
+            await chrome.scripting.executeScript({
+              target: { tabId: tabId },
+              func: () => {
+                if (window.crawler && window.crawler.stopCrawling) {
+                  window.crawler.stopCrawling();
+                  console.log('[Popup] Stopped existing crawler instance');
+                }
+              }
+            });
+            
+            // Wait a moment for cleanup
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            
+            statusDiv.innerHTML = '<div class="icon">✅</div>Existing crawler stopped. Ready to start new instance.';
+            statusDiv.className = 'status info';
+            startBtn.disabled = false;
+            return; // Exit early - user can click start again if needed
+            
+          } catch (error) {
+            console.warn('[Popup] Could not stop existing crawler, will refresh page:', error);
+            // Fallback to page refresh only if stopping fails
+            statusDiv.innerHTML = '<div class="icon">🔄</div>Refreshing page to reinitialize...';
+            await chrome.tabs.reload(tabId);
+            
+            // Wait for page to reload
+            await new Promise(resolve => setTimeout(resolve, 2000));
+          }
         }
         
         // Inject content scripts in proper order with delays between each step
