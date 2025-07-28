@@ -40,12 +40,12 @@
         "crawlers/reddit-crawler.js",
         "content.js"
       ],
-      "run_at": "document_idle"
+      "run_at": "document_end"
     }
   ],
   "web_accessible_resources": [
     {
-      "resources": ["db.js"],
+      "resources": ["db.js", "control-panel.css"],
       "matches": ["<all_urls>"]
     }
   ],

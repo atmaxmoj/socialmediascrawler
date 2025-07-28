@@ -1,0 +1,128 @@
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+#social-media-crawler-panel {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 10000;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-radius: 12px;
+  padding: 16px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 14px;
+  color: white;
+  min-width: 280px;
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+#social-media-crawler-panel .header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  font-weight: 600;
+  font-size: 16px;
+}
+
+#social-media-crawler-panel .pulse-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #10b981;
+  animation: pulse 2s infinite;
+}
+
+#social-media-crawler-panel .status-info {
+  margin-bottom: 12px;
+}
+
+#social-media-crawler-panel .status-line {
+  font-size: 12px;
+  opacity: 0.8;
+  margin-bottom: 4px;
+}
+
+#current-content-card {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 10px;
+  margin-bottom: 12px;
+  border-left: 3px solid #10b981;
+  display: none;
+}
+
+#current-content-card .label {
+  font-size: 11px;
+  opacity: 0.7;
+  margin-bottom: 4px;
+}
+
+#current-content-text {
+  font-size: 11px;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+#social-media-crawler-panel .button-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+#social-media-crawler-panel .button-row-small {
+  display: flex;
+  gap: 8px;
+}
+
+#social-media-crawler-panel button {
+  flex: 1;
+  border: none;
+  border-radius: 6px;
+  padding: 8px 12px;
+  color: white;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+#social-media-crawler-panel button:hover {
+  transform: translateY(-1px);
+}
+
+#crawler-start-btn {
+  background: #10b981;
+}
+
+#crawler-start-btn:hover {
+  background: #059669;
+}
+
+#crawler-stop-btn {
+  background: #ef4444;
+  display: none;
+}
+
+#crawler-stop-btn:hover {
+  background: #dc2626;
+}
+
+#social-media-crawler-panel .small-btn {
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  padding: 6px 8px;
+  font-size: 11px;
+}
+
+#social-media-crawler-panel .small-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+}

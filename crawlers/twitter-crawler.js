@@ -6,62 +6,70 @@ class TwitterCrawler extends BaseCrawler {
 
   getSelectors() {
     return {
-      postContainer: '[data-testid="tweet"]:not([data-testid="tweet"] [data-testid="tweet"])', // Avoid nested tweets
-      textContent: '[data-testid="tweetText"]',
+      // Use multiple fallback selectors for better compatibility
+      postContainer: 'article[data-testid="tweet"], div[data-testid="tweet"], [data-testid="tweet"]',
+      textContent: '[data-testid="tweetText"], [lang]:not([data-testid="tweetPhoto"]):not([data-testid="videoPlayer"]):not([data-testid="gifPlayer"]) span',
       author: {
-        name: '[data-testid="User-Name"] span' +
-            '' +
-            ':first-child',
-        handle: '[data-testid="User-Name"] span:last-child',
-        avatar: '[data-testid="Tweet-User-Avatar"] img'
+        name: '[data-testid="User-Name"] > div > div > span, [data-testid="User-Name"] span:first-child, [data-testid="User-Name"] > div span:first-child',
+        handle: '[data-testid="User-Name"] > div > div:last-child span, [data-testid="User-Name"] span:last-child, [data-testid="User-Name"] a span',
+        avatar: '[data-testid="Tweet-User-Avatar"] img, [data-testid="UserAvatar-Container-"] img, img[alt*="avatar"]'
       },
-      timestamp: 'time',
-      engagement: '[role="group"]',
+      timestamp: 'time, a[href*="/status/"] time, [data-testid="Time"]',
+      engagement: '[role="group"], [data-testid="reply"], [data-testid="retweet"], [data-testid="like"]',
       metrics: {
-        reply: '[data-testid="reply"] span[data-testid="app-text-transition-container"] span',
-        retweet: '[data-testid="retweet"] span[data-testid="app-text-transition-container"] span',
-        like: '[data-testid="like"] span[data-testid="app-text-transition-container"] span',
-        bookmark: '[data-testid="bookmark"]',
-        view: 'a[href*="/status/"] span[data-testid="app-text-transition-container"] span'
+        reply: '[data-testid="reply"] span[data-testid="app-text-transition-container"] span, [data-testid="reply"] span span, [aria-label*="repl"] span',
+        retweet: '[data-testid="retweet"] span[data-testid="app-text-transition-container"] span, [data-testid="retweet"] span span, [aria-label*="repost"] span',
+        like: '[data-testid="like"] span[data-testid="app-text-transition-container"] span, [data-testid="like"] span span, [aria-label*="like"] span',
+        bookmark: '[data-testid="bookmark"], [aria-label*="bookmark"]',
+        view: 'a[href*="/status/"] span[data-testid="app-text-transition-container"] span, [aria-label*="view"] span'
       },
       replies: {
-        container: '[data-testid="tweet"] + div [data-testid="tweet"]',
+        container: '[data-testid="tweet"] + div [data-testid="tweet"], article + article',
         author: '[data-testid="User-Name"] span:first-child',
         text: '[data-testid="tweetText"]',
         timestamp: 'time'
       },
       media: {
-        images: '[data-testid="tweetPhoto"] img',
-        videos: '[data-testid="videoPlayer"] video',
-        gifs: '[data-testid="gifPlayer"] video'
+        images: '[data-testid="tweetPhoto"] img, [data-testid="card.layoutLarge.media"] img, img[src*="media"]',
+        videos: '[data-testid="videoPlayer"] video, video',
+        gifs: '[data-testid="gifPlayer"] video, [data-testid="gif"] video'
       },
-      links: 'a[href^="https://t.co/"]',
-      hashtags: 'a[href*="/hashtag/"]',
-      mentions: 'a[href^="/"]'
+      links: 'a[href^="https://t.co/"], a[href*="t.co"]',
+      hashtags: 'a[href*="/hashtag/"], a[href*="#"]',
+      mentions: 'a[href^="/"], a[href*="twitter.com/"], a[href*="x.com/"]'
     };
   }
 
   extractPostData(postElement) {
     try {
+      if (!postElement || !postElement.querySelector) {
+        console.warn('[Twitter] Invalid post element provided');
+        return null;
+      }
+      
       const selectors = this.getSelectors();
+      console.log('[Twitter] Extracting post data from element:', postElement);
       
-      // Basic post info
-      const textElement = postElement.querySelector(selectors.textContent);
-      const authorNameElement = postElement.querySelector(selectors.author.name);
-      const authorHandleElement = postElement.querySelector(selectors.author.handle);
-      const timestampElement = postElement.querySelector(selectors.timestamp);
-      const avatarElement = postElement.querySelector(selectors.author.avatar);
+      // Extract text content using improved method
+      const text = this.extractTextContent(postElement);
+      const authorName = this.extractAuthorName(postElement);
+      const authorHandle = this.extractAuthorHandle(postElement);
+      const timestamp = this.extractTimestamp(postElement);
+      const avatar = this.extractAvatar(postElement);
       
-      const text = textElement ? textElement.textContent.trim() : '';
-      const authorName = authorNameElement ? authorNameElement.textContent.trim() : '';
-      const authorHandle = authorHandleElement ? authorHandleElement.textContent.trim() : '';
-      const timestamp = timestampElement ? (timestampElement.getAttribute('datetime') || timestampElement.textContent.trim()) : '';
-      const avatar = avatarElement ? avatarElement.src : '';
+      console.log('[Twitter] Extracted basic data:', { text: text.substring(0, 50), name: authorName, handle: authorHandle, time: timestamp });
+      
+      // Skip if no meaningful content
+      if (!text && !authorName) {
+        console.log('[Twitter] Skipping post - no text or author found');
+        return null;
+      }
       
       // Create unique ID
-      const uniqueId = this.createPostId(text, authorHandle, timestamp);
+      const uniqueId = this.createPostId(text, authorHandle || authorName, timestamp);
       
       if (this.crawledPosts.has(uniqueId)) {
+        console.log('[Twitter] Skipping post - already crawled');
         return null; // Already crawled
       }
       
@@ -99,12 +107,272 @@ class TwitterCrawler extends BaseCrawler {
         replies: this.extractTwitterReplies(postElement)
       };
       
-      this.crawledPosts.add(uniqueId);
+      console.log('[Twitter] Successfully created post data:', postData);
       return postData;
     } catch (error) {
       console.error('[Twitter] Error extracting post data:', error);
       return null;
     }
+  }
+  
+  // Extract post data for display purposes (bypassing crawled check)
+  extractPostDataForDisplay(postElement) {
+    try {
+      if (!postElement || !postElement.querySelector) {
+        console.warn('[Twitter] Invalid post element provided for display');
+        return null;
+      }
+      
+      // Extract text content using improved method
+      const text = this.extractTextContent(postElement);
+      const authorName = this.extractAuthorName(postElement);
+      const authorHandle = this.extractAuthorHandle(postElement);
+      const timestamp = this.extractTimestamp(postElement);
+      
+      // Skip if no meaningful content
+      if (!text && !authorName) {
+        console.log('[Twitter] Skipping post for display - no text or author found');
+        return null;
+      }
+      
+      // Create unique ID (but don't check if already crawled)
+      const uniqueId = this.createPostId(text, authorHandle || authorName, timestamp);
+      
+      // Return basic data for display (minimal data needed for "Currently Viewing")
+      return {
+        id: uniqueId,
+        platform: this.platform,
+        author: {
+          name: authorName,
+          handle: authorHandle
+        },
+        text: text,
+        timestamp: timestamp
+      };
+    } catch (error) {
+      console.error('[Twitter] Error extracting post data for display:', error);
+      return null;
+    }
+  }
+  
+  // Improved text extraction that handles media-rich posts
+  extractTextContent(postElement) {
+    try {
+      console.log('[Twitter] Starting text extraction for element:', postElement);
+      
+      // Primary method: try tweetText selector first
+      let textElement = postElement.querySelector('[data-testid="tweetText"]');
+      if (textElement && textElement.textContent.trim()) {
+        const primaryText = textElement.textContent.trim();
+        console.log('[Twitter] Found text using primary method:', primaryText.substring(0, 50) + '...');
+        return primaryText;
+      }
+      
+      console.log('[Twitter] Primary text extraction failed, trying fallback methods...');
+      
+      // Fallback method 1: look for text in lang-attributed elements, excluding media containers
+      const textElements = postElement.querySelectorAll('[lang] span, [lang] div');
+      let combinedText = '';
+      
+      console.log(`[Twitter] Found ${textElements.length} lang-attributed elements`);
+      
+      for (const el of textElements) {
+        // Skip if this element is inside media containers
+        if (el.closest('[data-testid="tweetPhoto"]') || 
+            el.closest('[data-testid="videoPlayer"]') || 
+            el.closest('[data-testid="gifPlayer"]') ||
+            el.closest('[data-testid="card.layoutLarge.media"]')) {
+          continue;
+        }
+        
+        const text = el.textContent.trim();
+        if (text && text.length > 3 && !combinedText.includes(text)) {
+          combinedText += (combinedText ? ' ' : '') + text;
+        }
+      }
+      
+      if (combinedText) {
+        console.log('[Twitter] Found text using fallback method 1:', combinedText.substring(0, 50) + '...');
+        return combinedText;
+      }
+      
+      // Fallback method 2: try broader selectors
+      console.log('[Twitter] Fallback method 1 failed, trying broader selectors...');
+      const broadSelectors = [
+        '[role="group"] span',
+        'article span',
+        '[data-testid="tweet"] span',
+        'div span'
+      ];
+      
+      for (const selector of broadSelectors) {
+        const elements = postElement.querySelectorAll(selector);
+        let broadText = '';
+        
+        for (const el of elements) {
+          // Skip media and UI elements
+          if (el.closest('[data-testid="tweetPhoto"]') || 
+              el.closest('[data-testid="videoPlayer"]') || 
+              el.closest('[data-testid="User-Name"]') ||
+              el.closest('[role="button"]') ||
+              el.closest('[data-testid="like"]') ||
+              el.closest('[data-testid="reply"]') ||
+              el.closest('[data-testid="retweet"]')) {
+            continue;
+          }
+          
+          const text = el.textContent.trim();
+          if (text && text.length > 10 && !broadText.includes(text)) {
+            broadText += (broadText ? ' ' : '') + text;
+            if (broadText.length > 100) break; // Prevent too long text
+          }
+        }
+        
+        if (broadText && broadText.length > 20) {
+          console.log(`[Twitter] Found text using broad selector ${selector}:`, broadText.substring(0, 50) + '...');
+          return broadText;
+        }
+      }
+      
+      console.log('[Twitter] All text extraction methods failed');
+      return '';
+    } catch (error) {
+      console.error('[Twitter] Error extracting text content:', error);
+      return '';
+    }
+  }
+  
+  extractAuthorName(postElement) {
+    const selectors = [
+      '[data-testid="User-Name"] > div > div > span',
+      '[data-testid="User-Name"] span:first-child',
+      '[data-testid="User-Name"] > div span:first-child',
+      '[data-testid="User-Name"] span'
+    ];
+    
+    for (const selector of selectors) {
+      try {
+        const el = postElement.querySelector(selector);
+        if (el && el.textContent.trim()) {
+          return el.textContent.trim();
+        }
+      } catch (e) {
+        continue;
+      }
+    }
+    return '';
+  }
+  
+  extractAuthorHandle(postElement) {
+    const selectors = [
+      '[data-testid="User-Name"] > div > div:last-child span',
+      '[data-testid="User-Name"] span:last-child',
+      '[data-testid="User-Name"] a span',
+      '[data-testid="User-Name"] a'
+    ];
+    
+    for (const selector of selectors) {
+      try {
+        const el = postElement.querySelector(selector);
+        if (el && el.textContent.trim()) {
+          const text = el.textContent.trim();
+          // Ensure we get the handle (starts with @)
+          if (text.startsWith('@')) {
+            return text;
+          }
+        }
+      } catch (e) {
+        continue;
+      }
+    }
+    return '';
+  }
+  
+  extractTimestamp(postElement) {
+    const selectors = [
+      'time',
+      'a[href*="/status/"] time',
+      '[data-testid="Time"]'
+    ];
+    
+    for (const selector of selectors) {
+      try {
+        const el = postElement.querySelector(selector);
+        if (el) {
+          // Try datetime attribute first
+          if (el.getAttribute && el.getAttribute('datetime')) {
+            return el.getAttribute('datetime');
+          }
+          // Fall back to text content
+          if (el.textContent && el.textContent.trim()) {
+            return el.textContent.trim();
+          }
+        }
+      } catch (e) {
+        continue;
+      }
+    }
+    return '';
+  }
+  
+  extractAvatar(postElement) {
+    const selectors = [
+      '[data-testid="Tweet-User-Avatar"] img',
+      '[data-testid="UserAvatar-Container-"] img',
+      'img[alt*="avatar"]',
+      '[data-testid="User-Name"] img'
+    ];
+    
+    for (const selector of selectors) {
+      try {
+        const el = postElement.querySelector(selector);
+        if (el && el.src) {
+          return el.src;
+        }
+      } catch (e) {
+        continue;
+      }
+    }
+    return '';
+  }
+  
+  // Helper method to try multiple selectors
+  trySelectors(element, selectors, attribute = 'textContent') {
+    if (!element || !selectors || !Array.isArray(selectors)) {
+      console.warn(`[Twitter] Invalid parameters for trySelectors:`, { element, selectors, attribute });
+      return null;
+    }
+    
+    for (const selector of selectors) {
+      try {
+        if (!selector || typeof selector !== 'string') continue;
+        
+        const trimmedSelector = selector.trim();
+        if (!trimmedSelector) continue;
+        
+        const el = element.querySelector(trimmedSelector);
+        if (el) {
+          console.log(`[Twitter] Found element with selector: ${trimmedSelector}`);
+          
+          try {
+            if (attribute === 'textContent') {
+              return el.textContent ? el.textContent.trim() : '';
+            } else if (attribute === 'src') {
+              return el.src || '';
+            } else {
+              return el;
+            }
+          } catch (attrError) {
+            console.warn(`[Twitter] Error accessing ${attribute} on element:`, attrError);
+            continue;
+          }
+        }
+      } catch (e) {
+        console.warn(`[Twitter] Selector failed: ${selector}`, e.message);
+      }
+    }
+    console.log(`[Twitter] No element found for selectors: ${selectors.join(', ')}`);
+    return null;
   }
 
   extractTweetId(postElement) {
@@ -249,7 +517,7 @@ class TwitterCrawler extends BaseCrawler {
         
         const author = authorElement ? authorElement.textContent.trim() : '';
         const text = textElement ? textElement.textContent.trim() : '';
-        const timestamp = timestampElement ? (timestampElement.getAttribute('datetime') || timestampElement.textContent.trim()) : '';
+        const timestamp = timestampElement ? (typeof timestampElement === 'string' ? timestampElement : (timestampElement.getAttribute ? (timestampElement.getAttribute('datetime') || timestampElement.textContent.trim()) : timestampElement.toString())) : '';
         
         if (author && text) {
           replies.push({

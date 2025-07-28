@@ -7,52 +7,61 @@
       width: 300px;
       padding: 20px;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      text-align: center;
     }
     .header {
-      text-align: center;
       margin-bottom: 20px;
+    }
+    .header h3 {
+      margin: 0;
+      color: #333;
     }
     .status {
       padding: 10px;
-      border-radius: 5px;
+      border-radius: 8px;
       margin-bottom: 15px;
       text-align: center;
+      font-size: 14px;
     }
     .status.ready {
       background-color: #e8f5e8;
       color: #2d5f2d;
       border: 1px solid #4caf50;
     }
-    .status.crawling {
-      background-color: #fff3cd;
-      color: #856404;
-      border: 1px solid #ffc107;
-    }
     .status.error {
       background-color: #f8d7da;
       color: #721c24;
       border: 1px solid #dc3545;
     }
+    .status.info {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border: none;
+    }
     button {
       width: 100%;
       padding: 12px;
-      margin: 5px 0;
+      margin: 8px 0;
       border: none;
-      border-radius: 5px;
+      border-radius: 8px;
       cursor: pointer;
       font-size: 14px;
       font-weight: 500;
+      transition: all 0.2s;
     }
     .primary-btn {
-      background-color: #1da1f2;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
       color: white;
     }
     .primary-btn:hover {
-      background-color: #1991db;
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
     }
     .primary-btn:disabled {
-      background-color: #ccc;
+      background: #ccc;
       cursor: not-allowed;
+      transform: none;
+      box-shadow: none;
     }
     .secondary-btn {
       background-color: #f8f9fa;
@@ -62,39 +71,41 @@
     .secondary-btn:hover {
       background-color: #e9ecef;
     }
-    .results {
-      margin-top: 15px;
-      padding: 10px;
-      background-color: #f8f9fa;
-      border-radius: 5px;
-      font-size: 12px;
+    .icon {
+      font-size: 24px;
+      margin-bottom: 10px;
     }
     .hidden {
       display: none;
+    }
+    .note {
+      font-size: 12px;
+      color: #666;
+      line-height: 1.4;
+      background: #f8f9fa;
+      padding: 10px;
+      border-radius: 6px;
+      margin-top: 10px;
     }
   </style>
 </head>
 <body>
   <div class="header">
-    <h3>Posts Crawler</h3>
+    <h3>Social Media Crawler</h3>
   </div>
   
   <div id="status" class="status ready">
-    Ready to crawl
+    <div class="icon">🚀</div>
+    Ready to start crawling
   </div>
   
-  <button id="startCrawl" class="primary-btn">Start Crawling</button>
-  <button id="stopCrawl" class="secondary-btn hidden">Stop Crawling</button>
+  <button id="startCrawler" class="primary-btn">
+    Start Crawler
+  </button>
   
-  <div style="margin-top: 15px;">
-    <button id="exportJson" class="secondary-btn">Export JSON</button>
-    <button id="exportCsv" class="secondary-btn">Export CSV</button>
-    <button id="clearData" class="secondary-btn">Clear Data</button>
-  </div>
-  
-  <div id="results" class="results hidden">
-    <div>Posts found: <span id="postCount">0</span></div>
-    <div>Status: <span id="crawlStatus">Idle</span></div>
+  <div class="note">
+    Click "Start Crawler" to activate the floating control panel on the webpage. 
+    The panel will appear in the top-right corner and persist even when you close this popup.
   </div>
 
   <script src="db.js"></script>
