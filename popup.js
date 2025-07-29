@@ -131,6 +131,12 @@ document.addEventListener('DOMContentLoaded', async function() {
         });
         await new Promise(resolve => setTimeout(resolve, 300));
         
+        await chrome.scripting.executeScript({
+          target: { tabId: tabId },
+          files: ['crawlers/facebook-crawler.js']
+        });
+        await new Promise(resolve => setTimeout(resolve, 300));
+        
         statusDiv.innerHTML = '<div class="icon">4️⃣</div>Loading content script...';
         await chrome.scripting.executeScript({
           target: { tabId: tabId },

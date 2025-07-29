@@ -24,9 +24,7 @@ function createCrawler(platform) {
     case 'reddit':
       return new RedditCrawler();
     case 'facebook':
-      // TODO: Implement FacebookCrawler
-      console.warn('Facebook crawler not yet implemented');
-      return null;
+      return new FacebookCrawler();
     case 'instagram':
       // TODO: Implement InstagramCrawler
       console.warn('Instagram crawler not yet implemented');
