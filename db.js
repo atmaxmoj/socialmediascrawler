@@ -174,16 +174,40 @@ class PostsDB {
       return null;
     }
     
+    // Generate intelligent filename based on current page and posts
+    const dateStr = new Date().toISOString().split('T')[0];
+    let filename = `social_media_posts_${dateStr}`;
+    
+    // Try to extract company/profile name from current page
+    const companyName = this.extractCompanyName();
+    if (companyName) {
+      filename = `${dateStr}_${companyName}`;
+    }
+    
+    // Add platform info if posts are from single platform
+    const platforms = [...new Set(posts.map(post => post.platform))];
+    if (platforms.length === 1) {
+      const platform = platforms[0];
+      if (companyName) {
+        filename = `${dateStr}_${companyName}_${platform}`;
+      } else {
+        filename = `${dateStr}_${platform}_posts`;
+      }
+    }
+    
+    // Add post count
+    filename += `_${posts.length}posts`;
+    
     switch (format.toLowerCase()) {
       case 'json':
         return {
           data: JSON.stringify(posts, null, 2),
-          filename: `social_media_posts_${new Date().toISOString().split('T')[0]}.json`,
+          filename: `${filename}.json`,
           type: 'application/json'
         };
       
       case 'csv':
-        const csvHeader = 'ID,Platform,Author Name,Author Handle,Text,Timestamp,URL,Crawled At,Likes,Retweets,Replies\n';
+        const csvHeader = 'ID,Platform,Author Name,Author Handle,Text,Timestamp,URL,Crawled At,Likes,Retweets,Replies,Views\n';
         const csvRows = posts.map(post => {
           const text = (post.text || '').replace(/"/g, '""').replace(/\n/g, ' ');
           const authorName = (post.author?.name || '').replace(/"/g, '""');
@@ -191,17 +215,58 @@ class PostsDB {
           const likes = post.metrics?.likes || 0;
           const retweets = post.metrics?.retweets || 0;
           const replies = post.metrics?.replies || 0;
-          return `"${post.id}","${post.platform}","${authorName}","${authorHandle}","${text}","${post.timestamp}","${post.url}","${post.crawledAt}","${likes}","${retweets}","${replies}"`;
+          const views = post.metrics?.views || 0;
+          return `"${post.id}","${post.platform}","${authorName}","${authorHandle}","${text}","${post.timestamp}","${post.url}","${post.crawledAt}","${likes}","${retweets}","${replies}","${views}"`;
         }).join('\n');
         
         return {
           data: csvHeader + csvRows,
-          filename: `social_media_posts_${new Date().toISOString().split('T')[0]}.csv`,
+          filename: `${filename}.csv`,
           type: 'text/csv'
         };
       
       default:
         throw new Error('Unsupported export format');
+    }
+  }
+
+  // Extract company/profile name from current page
+  extractCompanyName() {
+    try {
+      // For Twitter/X - try different methods to get profile name
+      if (window.location.hostname.includes('x.com') || window.location.hostname.includes('twitter.com')) {
+        // Method 1: From URL path (e.g., /Routific -> Routific)
+        const pathMatch = window.location.pathname.match(/^\/([^\/]+)/);
+        if (pathMatch && pathMatch[1] && pathMatch[1] !== 'home' && pathMatch[1] !== 'search') {
+          return pathMatch[1];
+        }
+        
+        // Method 2: From page title
+        const titleMatch = document.title.match(/^(.+?)\s*(?:\(.*?\))?\s*(?:\/|on|•|Twitter|X)/);
+        if (titleMatch && titleMatch[1]) {
+          return titleMatch[1].replace(/[^a-zA-Z0-9_]/g, '');
+        }
+        
+        // Method 3: From profile name in DOM
+        const profileName = document.querySelector('[data-testid="UserName"] span');
+        if (profileName && profileName.textContent) {
+          return profileName.textContent.replace(/[^a-zA-Z0-9_]/g, '');
+        }
+      }
+      
+      // For LinkedIn
+      if (window.location.hostname.includes('linkedin.com')) {
+        // From URL or page title
+        const titleMatch = document.title.match(/^(.+?)\s*[\|\-]/);
+        if (titleMatch && titleMatch[1]) {
+          return titleMatch[1].replace(/[^a-zA-Z0-9_]/g, '');
+        }
+      }
+      
+      return null;
+    } catch (error) {
+      console.warn('[PostsDB] Error extracting company name:', error);
+      return null;
     }
   }
 }

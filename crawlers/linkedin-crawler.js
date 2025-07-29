@@ -6,20 +6,20 @@ class LinkedInCrawler extends BaseCrawler {
 
   getSelectors() {
     return {
-      postContainer: '.feed-shared-update-v2',
-      textContent: '.feed-shared-text',
+      postContainer: '.feed-shared-update-v2, .occludable-update',
+      textContent: '.update-components-text, .feed-shared-text, .feed-shared-inline-show-more-text',
       author: {
-        name: '.feed-shared-actor__name',
-        title: '.feed-shared-actor__description',
-        avatar: '.feed-shared-actor__avatar img',
-        profile: '.feed-shared-actor__name a'
+        name: '.update-components-actor__title, .feed-shared-actor__name',
+        title: '.update-components-actor__description, .feed-shared-actor__description', 
+        avatar: '.update-components-actor__avatar img, .feed-shared-actor__avatar img',
+        profile: '.update-components-actor__meta-link, .feed-shared-actor__name a'
       },
-      timestamp: '.feed-shared-actor__sub-description time',
-      engagement: '.social-actions-bar',
+      timestamp: '.update-components-actor__sub-description, .feed-shared-actor__sub-description time, .feed-shared-actor__sub-description',
+      engagement: '.feed-shared-social-action-bar, .social-actions-bar',
       metrics: {
-        reactions: '.social-counts-reactions__count',
+        reactions: '.social-details-social-counts__reactions-count, .social-counts-reactions__count',
         comments: '.social-counts-comments span',
-        reposts: '.social-counts-shares span'
+        reposts: '.social-details-social-counts__item--truncate-text, .social-counts-shares span'
       },
       reactions: {
         container: '.reactions-menu',
@@ -309,5 +309,29 @@ class LinkedInCrawler extends BaseCrawler {
     }
     
     return comments;
+  }
+
+  // LinkedIn-specific implementation for finding next post
+  findNextPostToScrollTo() {
+    const selectors = this.getSelectors();
+    const posts = Array.from(document.querySelectorAll(selectors.postContainer));
+    
+    // First, find the current top post in viewport
+    const currentTopPost = this.getTopPostInViewport(posts);
+    
+    if (!currentTopPost) {
+      return posts.length > 0 ? posts[0] : null;
+    }
+    
+    // For LinkedIn, use DOM index-based approach since LinkedIn doesn't have virtual scrolling issues like Twitter
+    const currentIndex = posts.indexOf(currentTopPost);
+    
+    // Look for the next post after the current one
+    if (currentIndex >= 0 && currentIndex < posts.length - 1) {
+      return posts[currentIndex + 1];
+    }
+    
+    // If no next post in current DOM, return null to trigger more content loading
+    return null;
   }
 }

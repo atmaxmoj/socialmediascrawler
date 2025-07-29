@@ -31,8 +31,23 @@ class BaseCrawler {
 
   // Common methods shared by all crawlers
   createPostId(text, author, timestamp) {
-    const content = `${author}-${text.substring(0, 50)}-${timestamp}`;
-    return btoa(content).replace(/[^a-zA-Z0-9]/g, '').substring(0, 16);
+    // For Twitter, try to use more of the text content for uniqueness
+    const textPortion = text ? text.substring(0, 100) : ''; // Increased from 50 to 100 chars
+    const content = `${author}-${textPortion}-${timestamp}`;
+    
+    // Create a more robust hash
+    let hash = 0;
+    for (let i = 0; i < content.length; i++) {
+      const char = content.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash; // Convert to 32-bit integer
+    }
+    
+    // Convert to base36 for shorter string and add timestamp suffix for extra uniqueness
+    const baseHash = Math.abs(hash).toString(36);
+    const timestampSuffix = timestamp ? timestamp.replace(/[^0-9]/g, '').slice(-6) : Date.now().toString().slice(-6);
+    
+    return `${baseHash}_${timestampSuffix}`.substring(0, 20);
   }
 
   // Helper method to format console output with fixed width
@@ -529,7 +544,51 @@ class BaseCrawler {
     const topPost = this.getTopPostInViewport(posts);
     
     if (!topPost) {
+      console.log(`[${this.platform}] No top post found in viewport`);
       return false;
+    }
+    
+    // Rate limiting: check if we've processed the same post too many times
+    const postPosition = topPost.getBoundingClientRect().top + window.scrollY;
+    const postKey = `${postPosition.toFixed(0)}px`;
+    
+    if (!this.lastProcessedPosts) {
+      this.lastProcessedPosts = new Map();
+    }
+    
+    const currentTime = Date.now();
+    const lastProcessed = this.lastProcessedPosts.get(postKey);
+    
+    if (lastProcessed) {
+      const timeDiff = currentTime - lastProcessed.timestamp;
+      lastProcessed.count = (lastProcessed.count || 0) + 1;
+      
+      // If we've processed the same post more than 3 times in the last 15 seconds, skip it silently
+      if (lastProcessed.count > 3 && timeDiff < 15000) {
+        // Silent skip - only log occasionally to reduce console spam
+        if (lastProcessed.count === 4 || lastProcessed.count % 10 === 0) {
+          console.log(`[${this.platform}] Rate limiting: skipping post at ${postKey} (processed ${lastProcessed.count} times in ${(timeDiff/1000).toFixed(1)}s)`);
+        }
+        return false;
+      }
+      
+      // Reset count if enough time has passed
+      if (timeDiff > 30000) {
+        lastProcessed.count = 1;
+        lastProcessed.timestamp = currentTime;
+      }
+    } else {
+      this.lastProcessedPosts.set(postKey, { timestamp: currentTime, count: 1 });
+    }
+    
+    // Clean up old entries (keep only last 10)
+    if (this.lastProcessedPosts.size > 10) {
+      const entries = Array.from(this.lastProcessedPosts.entries());
+      entries.sort((a, b) => b[1].timestamp - a[1].timestamp);
+      this.lastProcessedPosts.clear();
+      entries.slice(0, 10).forEach(([key, value]) => {
+        this.lastProcessedPosts.set(key, value);
+      });
     }
     
     // Always update "Currently Viewing" to show what's at the top
@@ -547,9 +606,12 @@ class BaseCrawler {
         this.savePost(postData);
         return true; // Successfully processed new post
       } else if (this.crawledPosts.has(postData.id)) {
+        console.log(`[${this.platform}] Post already recorded, should scroll to next post`);
         this.showAlreadyRecordedIndicator(); // Show indicator for already recorded posts
         return false; // Already processed, should move to next
       }
+    } else {
+      console.log(`[${this.platform}] Could not extract post data from current top post`);
     }
     
     return false;
@@ -559,38 +621,63 @@ class BaseCrawler {
   getTopPostInViewport(posts) {
     const viewportTop = window.scrollY;
     const viewportHeight = window.innerHeight;
-    const topThreshold = viewportTop + 100; // Consider posts within 100px of top as "at top"
     
     let topPost = null;
-    let highestVisibilityRatio = 0;
+    let bestScore = -1;
     
-    Array.from(posts).forEach(post => {
+    Array.from(posts).forEach((post, index) => {
       const rect = post.getBoundingClientRect();
       const postTop = rect.top + window.scrollY;
       const postBottom = postTop + rect.height;
       
       // Check if post is visible in viewport
       if (postBottom > viewportTop && postTop < viewportTop + viewportHeight) {
-        // Calculate how much of the post is visible at the top portion of viewport
+        // Calculate how much of the post is visible in the viewport
         const visibleTop = Math.max(postTop, viewportTop);
-        const visibleBottom = Math.min(postBottom, topThreshold);
+        const visibleBottom = Math.min(postBottom, viewportTop + viewportHeight);
+        const visibleHeight = visibleBottom - visibleTop;
+        const totalHeight = postBottom - postTop;
+        const visibilityRatio = visibleHeight / totalHeight;
         
-        if (visibleBottom > visibleTop) {
-          const visibleHeight = visibleBottom - visibleTop;
-          const totalHeight = postBottom - postTop;
-          const visibilityRatio = visibleHeight / totalHeight;
+        // Only consider posts that are at least 30% visible
+        if (visibilityRatio >= 0.3) {
+          // Calculate distance from viewport top
+          const distanceFromViewportTop = Math.abs(rect.top);
           
-          // Prefer posts that are more visible at the top and closer to viewport top
-          const distanceFromTop = Math.abs(postTop - viewportTop);
-          const score = visibilityRatio - (distanceFromTop / 1000); // Slight penalty for distance
+          // Create a scoring system that prioritizes:
+          // 1. Posts that are more visible (higher visibility ratio)
+          // 2. Posts that are closer to the top of viewport (lower distance)
+          // 3. Posts that have their top part visible (not cut off at top)
           
-          if (score > highestVisibilityRatio) {
-            highestVisibilityRatio = score;
+          let score = visibilityRatio * 100; // Base score from visibility
+          
+          // Bonus for posts closer to viewport top
+          score -= distanceFromViewportTop / 10;
+          
+          // Bonus for posts that start within viewport (not cut off at top)
+          if (rect.top >= -50) { // Allow small negative values for partially cut posts
+            score += 20;
+          }
+          
+          // Additional bonus for "readable" posts (posts where we can see the header/author)
+          if (rect.top >= -100 && visibilityRatio >= 0.5) {
+            score += 10;
+          }
+          
+          if (score > bestScore) {
+            bestScore = score;
             topPost = post;
           }
         }
       }
     });
+    
+    if (topPost) {
+      const winningRect = topPost.getBoundingClientRect();
+      console.log(`[${this.platform}] Selected top post: top=${winningRect.top.toFixed(0)}px, height=${winningRect.height.toFixed(0)}px, score=${bestScore.toFixed(1)}`);
+    } else {
+      console.log(`[${this.platform}] No suitable top post found`);
+    }
     
     return topPost;
   }
@@ -640,100 +727,127 @@ class BaseCrawler {
     // Step 1: Process the current top post (show currently viewing + record if new)
     const processedNewPost = this.processTopPost();
     
-    // Step 2: If current post was already processed, find and scroll to next post
+    // Step 2: If current post was already processed or couldn't be processed, scroll down
     if (!processedNewPost) {
-      const nextPost = this.findNextPostToScrollTo();
-      
-      if (nextPost) {
-        // Scroll to bring the next post to the top of the viewport
-        const postRect = nextPost.getBoundingClientRect();
-        const postTop = postRect.top + window.scrollY;
-        const targetScrollY = postTop - 50; // Leave some margin at the top
+      // For Twitter/X, scroll by the height of current post to move to next post
+      if (this.platform === 'twitter') {
+        const selectors = this.getSelectors();
+        const posts = document.querySelectorAll(selectors.postContainer);
+        const currentTopPost = this.getTopPostInViewport(posts);
         
-        // Add safeguard to prevent infinite scrolling to same position
-        if (Math.abs(targetScrollY - window.scrollY) < 10) {
+        if (currentTopPost) {
+          const currentScrollY = window.scrollY;
+          const postRect = currentTopPost.getBoundingClientRect();
+          const postHeight = postRect.height;
+          
+          // Safety check: ensure we always scroll down with a reasonable amount
+          let scrollAmount = Math.max(postHeight, 100); // At least 100px, but prefer post height
+          
+          // Additional safety: cap maximum scroll to prevent huge jumps
+          scrollAmount = Math.min(scrollAmount, 800); // Max 800px per scroll
+          
+          // Final safety check: ensure we're actually scrolling down
+          const targetScrollY = currentScrollY + scrollAmount;
+          if (targetScrollY <= currentScrollY) {
+            console.warn(`[${this.platform}] Invalid scroll target detected, using fallback`);
+            scrollAmount = 200; // Safe fallback
+          }
+          
           window.scrollTo({
-            top: window.scrollY + 200,
+            top: currentScrollY + scrollAmount,
             behavior: 'smooth'
           });
+          
+          console.log(`[${this.platform}] Current post couldn't be processed, scrolling down by ${scrollAmount}px (post height: ${postHeight}px, current: ${currentScrollY}px, target: ${currentScrollY + scrollAmount}px)`);
         } else {
+          // Fallback if no current post found
+          const currentScrollY = window.scrollY;
+          const fallbackAmount = 200;
+          
           window.scrollTo({
-            top: targetScrollY,
+            top: currentScrollY + fallbackAmount,
             behavior: 'smooth'
           });
+          
+          console.log(`[${this.platform}] No current post found, using fallback scroll of ${fallbackAmount}px`);
         }
         
         // After scroll completes, process the newly positioned top post
         setTimeout(() => {
           this.processTopPost();
-        }, 1500); // Wait for smooth scroll to complete
+        }, 1000);
         
       } else {
-        // No next post found, scroll down to load more content
-        const currentScrollY = window.scrollY;
-        const viewportHeight = window.innerHeight;
-        const scrollAmount = viewportHeight * 0.8;
-        const documentHeight = document.documentElement.scrollHeight;
-        const targetScroll = Math.min(currentScrollY + scrollAmount, documentHeight - viewportHeight);
+        // For other platforms, use the original logic with findNextPostToScrollTo
+        const nextPost = this.findNextPostToScrollTo();
         
-        window.scrollTo({
-          top: targetScroll,
-          behavior: 'smooth'
-        });
-        
-        // Check if new content loaded after scroll
-        setTimeout(() => {
-          const newDocumentHeight = document.documentElement.scrollHeight;
+        if (nextPost) {
+          // Scroll to bring the next post to the top of the viewport
+          const postRect = nextPost.getBoundingClientRect();
+          const postTop = postRect.top + window.scrollY;
+          const targetScrollY = postTop - 50; // Leave some margin at the top
           
-          if (newDocumentHeight === this.lastScrollHeight) {
-            this.noNewContentCount++;            
-            // If we've been stuck for too long, try a different approach
-            if (this.noNewContentCount >= 5) {
-              console.warn(`[${this.platform}] Crawler appears stuck, attempting recovery...`);
-              this.noNewContentCount = 0;
-              // Try scrolling to the very bottom to trigger more content loading
-              window.scrollTo({
-                top: document.documentElement.scrollHeight,
-                behavior: 'smooth'
-              });
-            }
+          // Add safeguard to prevent infinite scrolling to same position
+          if (Math.abs(targetScrollY - window.scrollY) < 10) {
+            window.scrollTo({
+              top: window.scrollY + 200,
+              behavior: 'smooth'
+            });
           } else {
-            this.noNewContentCount = 0;
+            window.scrollTo({
+              top: targetScrollY,
+              behavior: 'smooth'
+            });
           }
           
-          this.lastScrollHeight = newDocumentHeight;
-        }, 2000);
+          // After scroll completes, process the newly positioned top post
+          setTimeout(() => {
+            this.processTopPost();
+          }, 1500); // Wait for smooth scroll to complete
+          
+        } else {
+          // No next post found, scroll down to load more content
+          const currentScrollY = window.scrollY;
+          const viewportHeight = window.innerHeight;
+          const scrollAmount = viewportHeight * 0.8;
+          const documentHeight = document.documentElement.scrollHeight;
+          const targetScroll = Math.min(currentScrollY + scrollAmount, documentHeight - viewportHeight);
+          
+          window.scrollTo({
+            top: targetScroll,
+            behavior: 'smooth'
+          });
+          
+          // Check if new content loaded after scroll
+          setTimeout(() => {
+            const newDocumentHeight = document.documentElement.scrollHeight;
+            
+            if (newDocumentHeight === this.lastScrollHeight) {
+              this.noNewContentCount++;            
+              // If we've been stuck for too long, try a different approach
+              if (this.noNewContentCount >= 5) {
+                console.warn(`[${this.platform}] Crawler appears stuck, attempting recovery...`);
+                this.noNewContentCount = 0;
+                // Try scrolling to the very bottom to trigger more content loading
+                window.scrollTo({
+                  top: document.documentElement.scrollHeight,
+                  behavior: 'smooth'
+                });
+              }
+            } else {
+              this.noNewContentCount = 0;
+            }
+            
+            this.lastScrollHeight = newDocumentHeight;
+          }, 2000);
+        }
       }
     }
   }
 
-  // Find the next post that should be scrolled into view (strict sequential order)
+  // Abstract method - each platform should implement its own logic
   findNextPostToScrollTo() {
-    const selectors = this.getSelectors();
-    const posts = Array.from(document.querySelectorAll(selectors.postContainer));
-    
-    // First, find the current top post in viewport
-    const currentTopPost = this.getTopPostInViewport(posts);
-    
-    if (!currentTopPost) {
-      return posts.length > 0 ? posts[0] : null;
-    }
-    
-    // Find the index of current top post in the DOM order
-    const currentIndex = posts.indexOf(currentTopPost);
-    
-    if (currentIndex === -1) {
-      return null;
-    }
-    
-    // Return the very next post in DOM order (strict sequential)
-    const nextIndex = currentIndex + 1;
-    
-    if (nextIndex < posts.length) {
-      return posts[nextIndex];
-    } else {
-      return null;
-    }
+    throw new Error('findNextPostToScrollTo() must be implemented by subclass');
   }
 
   async startCrawling() {
@@ -757,19 +871,19 @@ class BaseCrawler {
     // Initial crawl
     this.crawlVisiblePosts();
     
-    // Set up observer for new posts
+    // 改用精准的触发机制：只监听真正的新内容加载，而不是React重渲染
+    this.lastContentHeight = document.documentElement.scrollHeight;
     this.observer = new MutationObserver((mutations) => {
       if (!this.isRunning) return;
       
-      let shouldCrawl = false;
-      mutations.forEach(mutation => {
-        if (mutation.addedNodes.length > 0) {
-          shouldCrawl = true;
-        }
-      });
-      
-      if (shouldCrawl) {
-        setTimeout(() => this.crawlVisiblePosts(), 1000);
+      // 只有当页面内容高度发生变化时才认为有新内容
+      const currentHeight = document.documentElement.scrollHeight;
+      if (currentHeight > this.lastContentHeight) {
+        this.lastContentHeight = currentHeight;
+        // 新内容加载后，延迟一次性处理
+        setTimeout(() => {
+          this.crawlVisiblePosts();
+        }, 1000);
       }
     });
     
@@ -778,19 +892,30 @@ class BaseCrawler {
       subtree: true
     });
     
-    // Start auto-scrolling to load more content  
+    // 改用基于滚动位置变化的精准触发
+    let lastScrollY = window.scrollY;
+    this.scrollListener = () => {
+      if (!this.isRunning) return;
+      
+      const currentScrollY = window.scrollY;
+      // 只有当滚动位置显著变化时才处理（避免小幅滚动的噪音）
+      if (Math.abs(currentScrollY - lastScrollY) > 100) {
+        lastScrollY = currentScrollY;
+        // 滚动停止后处理一次
+        clearTimeout(this.scrollTimeout);
+        this.scrollTimeout = setTimeout(() => {
+          this.crawlVisiblePosts();
+        }, 500);
+      }
+    };
+    window.addEventListener('scroll', this.scrollListener, { passive: true });
+    
+    // 保留自动滚动，调快频率
     this.scrollInterval = setInterval(() => {
       if (this.isRunning) {
         this.autoScroll();
       }
-    }, 3000); // Scroll every 3 seconds initially
-    
-    // Periodic crawl for missed posts
-    this.crawlInterval = setInterval(() => {
-      if (this.isRunning) {
-        this.crawlVisiblePosts();
-      }
-    }, 10000); // Check every 10 seconds
+    }, 1000); // 每2.5秒自动滚动
     
     console.log(`[${this.platform}] Started crawler with intervals: scroll=${!!this.scrollInterval}, periodic=${!!this.crawlInterval}, observer=${!!this.observer}`);
   }
@@ -817,6 +942,18 @@ class BaseCrawler {
     if (this.scrollInterval) {
       clearInterval(this.scrollInterval);
       this.scrollInterval = null;
+    }
+    
+    // 清理滚动监听器
+    if (this.scrollListener) {
+      window.removeEventListener('scroll', this.scrollListener);
+      this.scrollListener = null;
+    }
+    
+    // 清理滚动超时
+    if (this.scrollTimeout) {
+      clearTimeout(this.scrollTimeout);
+      this.scrollTimeout = null;
     }
   }
 }
