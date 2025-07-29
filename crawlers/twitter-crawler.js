@@ -139,10 +139,14 @@ class TwitterCrawler extends BaseCrawler {
         replies = [];
       }
       
+      // Extract company name from current page
+      const companyName = this.extractCompanyName();
+      
       // Extract Twitter-specific data
       const postData = {
         id: uniqueId,
         platform: this.platform,
+        company: companyName || 'unknown',
         author: {
           name: authorName,
           handle: authorHandle,
@@ -681,6 +685,34 @@ class TwitterCrawler extends BaseCrawler {
     }
     
     return replies;
+  }
+
+  // Extract company name from current page URL
+  extractCompanyName() {
+    try {
+      // Method 1: From URL path (e.g., /Routific -> Routific)
+      const pathMatch = window.location.pathname.match(/^\/([^\/]+)/);
+      if (pathMatch && pathMatch[1] && pathMatch[1] !== 'home' && pathMatch[1] !== 'search' && pathMatch[1] !== 'explore' && pathMatch[1] !== 'notifications') {
+        return pathMatch[1];
+      }
+      
+      // Method 2: From page title
+      const titleMatch = document.title.match(/^(.+?)\s*(?:\(.*?\))?\s*(?:\/|on|•|Twitter|X)/);
+      if (titleMatch && titleMatch[1]) {
+        return titleMatch[1].replace(/[^a-zA-Z0-9_]/g, '');
+      }
+      
+      // Method 3: From profile name in DOM
+      const profileName = document.querySelector('[data-testid="UserName"] span');
+      if (profileName && profileName.textContent) {
+        return profileName.textContent.replace(/[^a-zA-Z0-9_]/g, '');
+      }
+      
+      return null;
+    } catch (error) {
+      console.warn('[Twitter] Error extracting company name:', error);
+      return null;
+    }
   }
 
   // Twitter-specific implementation for finding next post

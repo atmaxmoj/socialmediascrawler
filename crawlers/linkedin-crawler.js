@@ -70,10 +70,14 @@ class LinkedInCrawler extends BaseCrawler {
         return null; // Already crawled
       }
       
+      // Extract company name from current page
+      const companyName = this.extractCompanyName();
+      
       // Extract LinkedIn-specific data
       const postData = {
         id: uniqueId,
         platform: this.platform,
+        company: companyName || 'unknown',
         author: {
           name: authorName,
           title: authorTitle,
@@ -309,6 +313,40 @@ class LinkedInCrawler extends BaseCrawler {
     }
     
     return comments;
+  }
+
+  // Extract company name from current page URL  
+  extractCompanyName() {
+    try {
+      // Method 1: From URL path (e.g., /company/routific -> routific)
+      const companyMatch = window.location.pathname.match(/\/company\/([^\/]+)/);
+      if (companyMatch && companyMatch[1]) {
+        return companyMatch[1];
+      }
+      
+      // Method 2: From individual profile URL (e.g., /in/john-doe -> john-doe)
+      const profileMatch = window.location.pathname.match(/\/in\/([^\/]+)/);
+      if (profileMatch && profileMatch[1]) {
+        return profileMatch[1];
+      }
+      
+      // Method 3: From page title
+      const titleMatch = document.title.match(/^(.+?)\s*[\|\-]/);
+      if (titleMatch && titleMatch[1]) {
+        return titleMatch[1].replace(/[^a-zA-Z0-9_]/g, '');
+      }
+      
+      // Method 4: From company name in DOM
+      const companyName = document.querySelector('h1')?.textContent?.trim();
+      if (companyName) {
+        return companyName.replace(/[^a-zA-Z0-9_]/g, '');
+      }
+      
+      return null;
+    } catch (error) {
+      console.warn('[LinkedIn] Error extracting company name:', error);
+      return null;
+    }
   }
 
   // LinkedIn-specific implementation for finding next post

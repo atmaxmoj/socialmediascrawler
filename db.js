@@ -2,7 +2,7 @@
 class PostsDB {
   constructor() {
     this.dbName = 'SocialMediaCrawler';
-    this.version = 2; // Increment version to force database refresh
+    this.version = 3; // Increment version to add company index
     this.storeName = 'posts';
     this.db = null;
     console.log('[PostsDB] Constructor called');
@@ -38,6 +38,7 @@ class PostsDB {
         console.log('[PostsDB] Creating new posts store');
         const store = db.createObjectStore(this.storeName, { keyPath: 'id' });
         store.createIndex('platform', 'platform', { unique: false });
+        store.createIndex('company', 'company', { unique: false });
         store.createIndex('author', 'author', { unique: false });
         store.createIndex('crawledAt', 'crawledAt', { unique: false });
         store.createIndex('timestamp', 'timestamp', { unique: false });
@@ -122,6 +123,73 @@ class PostsDB {
       const request = index.getAll(platform);
       
       request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  async getPostsByCompany(company) {
+    if (!this.db) await this.init();
+    
+    return new Promise((resolve, reject) => {
+      const transaction = this.db.transaction([this.storeName], 'readonly');
+      const store = transaction.objectStore(this.storeName);
+      const index = store.index('company');
+      const request = index.getAll(company);
+      
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  async getPostsByPlatformAndCompany(platform, company) {
+    if (!this.db) await this.init();
+    
+    return new Promise((resolve, reject) => {
+      const transaction = this.db.transaction([this.storeName], 'readonly');
+      const store = transaction.objectStore(this.storeName);
+      const request = store.getAll();
+      
+      request.onsuccess = () => {
+        // Filter posts by both platform and company
+        const filteredPosts = request.result.filter(post => 
+          post.platform === platform && post.company === company
+        );
+        resolve(filteredPosts);
+      };
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  async getAvailableCompanies() {
+    if (!this.db) await this.init();
+    
+    return new Promise((resolve, reject) => {
+      const transaction = this.db.transaction([this.storeName], 'readonly');
+      const store = transaction.objectStore(this.storeName);
+      const request = store.getAll();
+      
+      request.onsuccess = () => {
+        // Extract unique companies
+        const companies = [...new Set(request.result.map(post => post.company).filter(Boolean))];
+        resolve(companies.sort());
+      };
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  async getAvailablePlatforms() {
+    if (!this.db) await this.init();
+    
+    return new Promise((resolve, reject) => {
+      const transaction = this.db.transaction([this.storeName], 'readonly');
+      const store = transaction.objectStore(this.storeName);
+      const request = store.getAll();
+      
+      request.onsuccess = () => {
+        // Extract unique platforms
+        const platforms = [...new Set(request.result.map(post => post.platform).filter(Boolean))];
+        resolve(platforms.sort());
+      };
       request.onerror = () => reject(request.error);
     });
   }
