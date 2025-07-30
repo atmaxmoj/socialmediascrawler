@@ -462,7 +462,7 @@ class BaseCrawler {
         transform: scale(1.1);
       }
       
-      /* Custom tooltip */
+      /* Custom tooltip - positioned relative to control panel */
       .custom-tooltip {
         position: absolute;
         background: rgba(0, 0, 0, 0.9);
@@ -478,6 +478,10 @@ class BaseCrawler {
         transition: opacity 0.2s;
         border: 1px solid rgba(255, 255, 255, 0.2);
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        /* Ensure tooltip stays within control panel bounds */
+        max-width: 280px;
+        word-wrap: break-word;
+        white-space: normal;
       }
       
       .custom-tooltip.show {
@@ -751,14 +755,22 @@ class BaseCrawler {
         tooltip = document.createElement('div');
         tooltip.className = 'custom-tooltip';
         tooltip.textContent = element.getAttribute('data-tooltip');
-        document.body.appendChild(tooltip);
         
-        // Position tooltip above the element
-        const rect = element.getBoundingClientRect();
+        // Append tooltip to control panel instead of document.body
+        this.controlPanel.appendChild(tooltip);
+        
+        // Position tooltip relative to the control panel
+        const panelRect = this.controlPanel.getBoundingClientRect();
+        const elementRect = element.getBoundingClientRect();
         const tooltipRect = tooltip.getBoundingClientRect();
         
-        tooltip.style.left = (rect.left + rect.width / 2 - tooltipRect.width / 2) + 'px';
-        tooltip.style.top = (rect.top - tooltipRect.height - 10) + 'px';
+        // Calculate position relative to control panel
+        const relativeLeft = elementRect.left - panelRect.left;
+        const relativeTop = elementRect.top - panelRect.top;
+        
+        // Position tooltip above the element, centered horizontally
+        tooltip.style.left = (relativeLeft + element.offsetWidth / 2 - tooltipRect.width / 2) + 'px';
+        tooltip.style.top = (relativeTop - tooltipRect.height - 10) + 'px';
         
         // Show tooltip with animation
         setTimeout(() => tooltip.classList.add('show'), 10);
