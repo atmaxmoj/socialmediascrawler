@@ -298,6 +298,83 @@ class PostsDB {
     }
   }
 
+  async exportFilteredData(format = 'json', platformFilter = 'all', companyFilter = 'all') {
+    console.log(`[PostsDB] Exporting filtered data - format: ${format}, platform: ${platformFilter}, company: ${companyFilter}`);
+    
+    let posts = [];
+    
+    // Apply filters to get the right posts
+    if (platformFilter === 'all' && companyFilter === 'all') {
+      posts = await this.getAllPosts();
+    } else if (platformFilter !== 'all' && companyFilter === 'all') {
+      posts = await this.getPostsByPlatform(platformFilter);
+    } else if (platformFilter === 'all' && companyFilter !== 'all') {
+      posts = await this.getPostsByCompany(companyFilter);
+    } else if (platformFilter !== 'all' && companyFilter !== 'all') {
+      posts = await this.getPostsByPlatformAndCompany(platformFilter, companyFilter);
+    }
+    
+    console.log(`[PostsDB] Found ${posts.length} posts matching filters`);
+    
+    if (!posts || posts.length === 0) {
+      console.log('[PostsDB] No posts to export with current filters');
+      return null;
+    }
+    
+    // Generate intelligent filename based on filters and current page
+    const dateStr = new Date().toISOString().split('T')[0];
+    let filename = `social_media_posts_${dateStr}`;
+    
+    // Add platform info if filtering by platform
+    if (platformFilter !== 'all') {
+      filename = `${dateStr}_${platformFilter}`;
+    }
+    
+    // Add company info if filtering by company
+    if (companyFilter !== 'all') {
+      if (platformFilter !== 'all') {
+        filename = `${dateStr}_${companyFilter}_${platformFilter}`;
+      } else {
+        filename = `${dateStr}_${companyFilter}`;
+      }
+    }
+    
+    // Add post count
+    filename += `_${posts.length}posts`;
+    
+    switch (format.toLowerCase()) {
+      case 'json':
+        return {
+          data: JSON.stringify(posts, null, 2),
+          filename: `${filename}.json`,
+          type: 'application/json'
+        };
+      
+      case 'csv':
+        const csvHeader = 'ID,Platform,Company,Author Name,Author Handle,Text,Timestamp,URL,Crawled At,Likes,Retweets,Replies,Views\n';
+        const csvRows = posts.map(post => {
+          const text = (post.text || '').replace(/"/g, '""').replace(/\n/g, ' ');
+          const authorName = (post.author?.name || '').replace(/"/g, '""');
+          const authorHandle = (post.author?.handle || '').replace(/"/g, '""');
+          const company = (post.company || '').replace(/"/g, '""');
+          const likes = post.metrics?.likes || 0;
+          const retweets = post.metrics?.retweets || 0;
+          const replies = post.metrics?.replies || 0;
+          const views = post.metrics?.views || 0;
+          return `"${post.id}","${post.platform}","${company}","${authorName}","${authorHandle}","${text}","${post.timestamp}","${post.url}","${post.crawledAt}","${likes}","${retweets}","${replies}","${views}"`;
+        }).join('\n');
+        
+        return {
+          data: csvHeader + csvRows,
+          filename: `${filename}.csv`,
+          type: 'text/csv'
+        };
+      
+      default:
+        throw new Error('Unsupported export format');
+    }
+  }
+
   // Extract company/profile name from current page
   extractCompanyName() {
     try {

@@ -149,7 +149,10 @@ class BaseCrawler {
       </div>
       
       <div class="status-info">
-        <div class="status-line">Platform: ${this.platform.toUpperCase()}</div>
+        <div class="status-line">
+          Platform: ${this.platform.toUpperCase()}
+          <span class="platform-info-icon" data-tooltip="Supported platforms: X/Twitter, LinkedIn, Facebook">ⓘ</span>
+        </div>
         <div class="status-line">Status: <span id="crawler-status">Stopped</span></div>
         <div class="status-line">Posts: <span id="crawler-post-count">0</span></div>
       </div>
@@ -165,6 +168,17 @@ class BaseCrawler {
       <div class="button-row">
         <button id="crawler-start-btn">Start</button>
         <button id="crawler-stop-btn">Stop</button>
+      </div>
+      
+      <div class="filter-section">
+        <div class="filter-row">
+          <select id="crawler-platform-filter" class="filter-select">
+            <option value="all">All Platforms</option>
+          </select>
+          <select id="crawler-company-filter" class="filter-select">
+            <option value="all">All Companies</option>
+          </select>
+        </div>
       </div>
       
       <div class="button-row-small">
@@ -205,7 +219,11 @@ class BaseCrawler {
     exportCsvBtn.addEventListener('click', () => this.exportData('csv'));
     clearBtn.addEventListener('click', () => this.clearData());
 
-    // Initialize post count
+    // Initialize tooltip functionality
+    this.initializeTooltips();
+    
+    // Initialize filters and post count
+    this.initializeFilters();
     this.loadPostCount();
   }
 
@@ -358,6 +376,124 @@ class BaseCrawler {
         font-weight: 500;
         border: 1px solid rgba(16, 185, 129, 0.3);
       }
+
+      .filter-section {
+        margin-bottom: 12px;
+      }
+
+      .filter-row {
+        display: flex;
+        gap: 8px;
+      }
+
+      .filter-select {
+        flex: 1;
+        background: rgba(0, 0, 0, 0.3) !important;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        border-radius: 6px;
+        padding: 6px 8px;
+        color: white !important;
+        font-size: 11px;
+        cursor: pointer;
+        -webkit-appearance: none;
+        -moz-appearance: none;
+        appearance: none;
+        /* Force white text color */
+        -webkit-text-fill-color: white !important;
+        text-shadow: none !important;
+      }
+
+      .filter-select option {
+        background: #333333;
+        color: white;
+      }
+      
+      .filter-select option:checked {
+        background: #667eea;
+        color: white;
+      }
+
+      .filter-select:focus {
+        outline: none;
+        border-color: rgba(255, 255, 255, 0.4);
+        background: rgba(0, 0, 0, 0.4) !important;
+        color: white !important;
+        -webkit-text-fill-color: white !important;
+      }
+      
+      /* Additional Chrome/Safari fixes */
+      select.filter-select {
+        background-color: rgba(0, 0, 0, 0.3) !important;
+        color: white !important;
+      }
+      
+      select.filter-select::-webkit-scrollbar {
+        width: 8px;
+      }
+      
+      select.filter-select::-webkit-scrollbar-track {
+        background: #333;
+      }
+      
+      select.filter-select::-webkit-scrollbar-thumb {
+        background: #666;
+        border-radius: 4px;
+      }
+      
+      .platform-info-icon {
+        margin-left: 6px;
+        opacity: 0.6;
+        font-size: 11px;
+        cursor: help;
+        transition: opacity 0.2s;
+        display: inline-block;
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        text-align: center;
+        line-height: 12px;
+        background: rgba(255, 255, 255, 0.1);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+      }
+      
+      .platform-info-icon:hover {
+        opacity: 1;
+        background: rgba(255, 255, 255, 0.2);
+        transform: scale(1.1);
+      }
+      
+      /* Custom tooltip */
+      .custom-tooltip {
+        position: absolute;
+        background: rgba(0, 0, 0, 0.9);
+        color: white;
+        padding: 8px 12px;
+        border-radius: 6px;
+        font-size: 11px;
+        font-weight: 400;
+        white-space: nowrap;
+        z-index: 10001;
+        pointer-events: none;
+        opacity: 0;
+        transition: opacity 0.2s;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+      }
+      
+      .custom-tooltip.show {
+        opacity: 1;
+      }
+      
+      .custom-tooltip::before {
+        content: '';
+        position: absolute;
+        bottom: -5px;
+        left: 50%;
+        transform: translateX(-50%);
+        border-left: 5px solid transparent;
+        border-right: 5px solid transparent;
+        border-top: 5px solid rgba(0, 0, 0, 0.9);
+      }
     `;
 
     const style = document.createElement('style');
@@ -472,15 +608,15 @@ class BaseCrawler {
         return;
       }
 
-      const count = await window.postsDB.getPostCount();
-      if (count === 0) {
-        alert('No data to export');
-        return;
-      }
+      // Get filter values
+      const platformFilter = document.getElementById('crawler-platform-filter')?.value || 'all';
+      const companyFilter = document.getElementById('crawler-company-filter')?.value || 'all';
+      
+      console.log(`[${this.platform}] Exporting with filters - platform: ${platformFilter}, company: ${companyFilter}`);
 
-      const exportData = await window.postsDB.exportData(format);
+      const exportData = await window.postsDB.exportFilteredData(format, platformFilter, companyFilter);
       if (!exportData) {
-        alert('No data to export');
+        alert('No data to export with current filters');
         return;
       }
 
@@ -498,6 +634,151 @@ class BaseCrawler {
       console.error(`[${this.platform}] Export error:`, error);
       alert('Export failed: ' + error.message);
     }
+  }
+
+  // Initialize filter dropdowns with available platforms and companies
+  async initializeFilters() {
+    try {
+      if (!window.postsDB) {
+        console.log(`[${this.platform}] PostsDB not available for filters`);
+        return;
+      }
+
+      if (!window.postsDB.db) {
+        await window.postsDB.init();
+      }
+
+      // Get available platforms and companies
+      const platforms = await window.postsDB.getAvailablePlatforms();
+      const companies = await window.postsDB.getAvailableCompanies();
+
+      console.log(`[${this.platform}] Found platforms: ${platforms.join(', ')}, companies: ${companies.join(', ')}`);
+
+      // Update platform dropdown
+      const platformSelect = document.getElementById('crawler-platform-filter');
+      if (platformSelect) {
+        // Clear existing options except "All Platforms"
+        while (platformSelect.children.length > 1) {
+          platformSelect.removeChild(platformSelect.lastChild);
+        }
+        
+        // Add platform options
+        platforms.forEach(platform => {
+          const option = document.createElement('option');
+          option.value = platform;
+          option.textContent = platform.charAt(0).toUpperCase() + platform.slice(1);
+          platformSelect.appendChild(option);
+        });
+        
+        // Set current platform as selected
+        platformSelect.value = this.platform;
+      }
+
+      // Update company dropdown
+      const companySelect = document.getElementById('crawler-company-filter');
+      if (companySelect) {
+        // Clear existing options except "All Companies"
+        while (companySelect.children.length > 1) {
+          companySelect.removeChild(companySelect.lastChild);
+        }
+        
+        // Add company options
+        companies.forEach(company => {
+          const option = document.createElement('option');
+          option.value = company;
+          option.textContent = company;
+          companySelect.appendChild(option);
+        });
+      }
+
+      // Add event listeners for filter changes
+      platformSelect?.addEventListener('change', () => this.updateFilteredCount());
+      companySelect?.addEventListener('change', () => this.updateFilteredCount());
+
+      // Initial count update
+      this.updateFilteredCount();
+
+    } catch (error) {
+      console.error(`[${this.platform}] Error initializing filters:`, error);
+    }
+  }
+
+  // Update post count based on current filters
+  async updateFilteredCount() {
+    try {
+      if (!window.postsDB) return;
+
+      const platformFilter = document.getElementById('crawler-platform-filter')?.value || 'all';
+      const companyFilter = document.getElementById('crawler-company-filter')?.value || 'all';
+
+      let count;
+      if (platformFilter === 'all' && companyFilter === 'all') {
+        count = await window.postsDB.getPostCount();
+      } else if (platformFilter !== 'all' && companyFilter !== 'all') {
+        const posts = await window.postsDB.getPostsByPlatformAndCompany(platformFilter, companyFilter);
+        count = posts.length;
+      } else if (platformFilter !== 'all') {
+        const posts = await window.postsDB.getPostsByPlatform(platformFilter);
+        count = posts.length;
+      } else if (companyFilter !== 'all') {
+        const posts = await window.postsDB.getPostsByCompany(companyFilter);
+        count = posts.length;
+      }
+
+      this.updatePostCount(count);
+      console.log(`[${this.platform}] Filtered count updated: ${count} posts (platform: ${platformFilter}, company: ${companyFilter})`);
+
+    } catch (error) {
+      console.error(`[${this.platform}] Error updating filtered count:`, error);
+    }
+  }
+
+  // Initialize custom tooltip functionality
+  initializeTooltips() {
+    // Find all elements with data-tooltip attribute
+    const tooltipElements = this.controlPanel.querySelectorAll('[data-tooltip]');
+    
+    tooltipElements.forEach(element => {
+      let tooltip = null;
+      
+      const showTooltip = (e) => {
+        // Remove existing tooltip
+        if (tooltip) {
+          tooltip.remove();
+        }
+        
+        // Create new tooltip
+        tooltip = document.createElement('div');
+        tooltip.className = 'custom-tooltip';
+        tooltip.textContent = element.getAttribute('data-tooltip');
+        document.body.appendChild(tooltip);
+        
+        // Position tooltip above the element
+        const rect = element.getBoundingClientRect();
+        const tooltipRect = tooltip.getBoundingClientRect();
+        
+        tooltip.style.left = (rect.left + rect.width / 2 - tooltipRect.width / 2) + 'px';
+        tooltip.style.top = (rect.top - tooltipRect.height - 10) + 'px';
+        
+        // Show tooltip with animation
+        setTimeout(() => tooltip.classList.add('show'), 10);
+      };
+      
+      const hideTooltip = () => {
+        if (tooltip) {
+          tooltip.classList.remove('show');
+          setTimeout(() => {
+            if (tooltip) {
+              tooltip.remove();
+              tooltip = null;
+            }
+          }, 200);
+        }
+      };
+      
+      element.addEventListener('mouseenter', showTooltip);
+      element.addEventListener('mouseleave', hideTooltip);
+    });
   }
 
   async clearData() {
