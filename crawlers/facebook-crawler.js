@@ -6,35 +6,35 @@ class FacebookCrawler extends BaseCrawler {
 
   getSelectors() {
     return {
-      // Facebook posts are contained in TimelineFeedUnit pagelets
-      postContainer: '[data-pagelet*="TimelineFeedUnit"], article[role="article"], [role="article"]',
-      textContent: '[data-ad-rendering-role="story_message"], [data-ad-comet-preview="message"], [data-ad-preview="message"]',
+      // Facebook posts - updated based on actual HTML structure
+      postContainer: '[data-pagelet*="TimelineFeedUnit"], [role="article"]',
+      textContent: '.native-text, div[dir="auto"], span[dir="auto"]',
       author: {
-        name: 'h2 a[role="link"] span, h2 b span, [data-ad-rendering-role="profile_name"] h2 span a',
-        avatar: 'svg image, img[alt*="avatar"], a[aria-label] svg image',
-        profile: 'h2 a[href*="facebook.com"], [data-ad-rendering-role="profile_name"] a'
+        name: '.native-text',
+        avatar: 'img[src*="scontent"], img[src*="fbcdn.net"]',
+        profile: 'a[href*="facebook.com"]'
       },
-      timestamp: 'a[aria-label*="年"][aria-label*="月"], a[aria-label*="日"], time, [data-testid="story-subtitle"] a',
-      engagement: '[role="toolbar"], [aria-label*="赞"], [aria-label*="评论"], [aria-label*="分享"]',
+      timestamp: 'a[aria-label*="年"], a[aria-label*="月"], a[aria-label*="日"], time, [data-mcomponent="TextArea"]',
+      engagement: '[role="button"][aria-label*="like"], [role="button"][aria-label*="comment"], [role="button"][aria-label*="share"]',
       metrics: {
-        likes: '[aria-label*="赞："], [aria-label*="like"], .x1kmio9f span',
-        comments: '[aria-label*="评论"], [data-ad-rendering-role="comment_button"]',
-        shares: '[aria-label*="分享"], [data-ad-rendering-role="share_button"]'
+        likes: '[aria-label*="like"], [aria-label*="个like"], .native-text',
+        comments: '[aria-label*="comment"], [aria-label*="comments"], .native-text',
+        shares: '[aria-label*="分享"], [aria-label*="share"], .native-text'
       },
       reactions: {
-        container: '[aria-label*="查看留下心情的用户"]',
-        types: 'img[src*="svg"]'
+        container: '[aria-label*="查看留下心情的用户"], [aria-label*="个like"]',
+        types: '.native-text span'
       },
       comments: {
-        container: '[data-ad-rendering-role="comments_container"]',
-        item: '[data-ad-rendering-role="comment"]',
-        author: '[data-ad-rendering-role="comment_author"]',
-        text: '[data-ad-rendering-role="comment_text"]',
-        timestamp: '[data-ad-rendering-role="comment_timestamp"]'
+        container: '[data-mcomponent="MContainer"]',
+        item: '[data-mcomponent="MContainer"]',
+        author: '.native-text',
+        text: '.native-text',
+        timestamp: '[data-mcomponent="TextArea"]'
       },
       media: {
-        images: 'img[src*="scontent"], img[src*="fbcdn.net"], [data-ad-rendering-role="media"] img',
-        videos: 'video, [data-ad-rendering-role="video"]',
+        images: 'img[src*="scontent"], img[src*="fbcdn.net"]',
+        videos: 'video, [data-mcomponent="MVideo"]',
         links: 'a[href*="facebook.com/photo"], a[href*="facebook.com/video"]'
       },
       links: 'a[href^="http"]:not([href*="facebook.com"])',
@@ -56,14 +56,19 @@ class FacebookCrawler extends BaseCrawler {
       
       console.log(`[Facebook] Basic extraction - text: "${this.formatLogText(text, 30)}", author: "${authorName}"`);
       
-      // Skip if no meaningful content
+      // Skip only if we have absolutely no content
       if (!text && !authorName) {
         console.log('[Facebook] No meaningful content found, skipping post');
         return null;
       }
       
-      // Create unique ID
-      const uniqueId = this.createPostId(text, authorName, timestamp);
+      // If we have no text but have author, that's still worth saving
+      if (!text && authorName) {
+        console.log('[Facebook] No text content but found author, will save post');
+      }
+      
+      // Create unique ID with additional video-specific data for better uniqueness
+      const uniqueId = this.createFacebookPostId(postElement, text, authorName, timestamp);
       
       if (this.crawledPosts.has(uniqueId)) {
         console.log(`[Facebook] Post already crawled (ID: ${uniqueId}), skipping`);
@@ -163,70 +168,150 @@ class FacebookCrawler extends BaseCrawler {
   // Extract text content from Facebook posts
   extractFacebookText(postElement) {
     try {
-      // Primary method: look for story message selectors
+      // Skip the expand click attempt since it requires server-side PHP requests
+      // Instead, focus on extracting all available text content more comprehensively
+      
+      // Try multiple approaches to find text content more aggressively
+      let bestText = '';
+      let allFoundTexts = [];
+      
+      // Approach 1: Look for all possible text content containers
       const textSelectors = [
-        '[data-ad-rendering-role="story_message"]',
-        '[data-ad-comet-preview="message"]',
+        // Primary text content areas
+        '.xdj266r.x14z9mp.xat24cr.x1lziwak.xexx8yu.xyri2b.x18d9i69.x1c1uobl',
+        'div[dir="auto"]',
+        'span[class*="x193iq5w"]',
+        // Additional possible containers
         '[data-ad-preview="message"]',
-        '[data-ad-rendering-role="message"]'
+        '.userContent',
+        '.text_exposed_show',
+        '.text_exposed_hide',
+        'p', 'div[style*="text"]',
+        // Look in parent containers that might have expanded content
+        '.x1yztbdb div[dir="auto"]',
+        '.x1n2onr6 span'
       ];
       
       for (const selector of textSelectors) {
-        const textElement = postElement.querySelector(selector);
-        if (textElement && textElement.textContent.trim()) {
-          let text = textElement.textContent.trim();
-          // Clean up common Facebook text artifacts
-          text = text.replace(/\s+/g, ' ');
-          text = text.replace(/展开$/, ''); // Remove "expand" button text
-          if (text.length > 10) {
-            return text;
-          }
-        }
-      }
-      
-      // Fallback method: look for text in specific div structures
-      const fallbackSelectors = [
-        'div[dir="auto"]',
-        'span[dir="auto"]',
-        'div[style*="text-align: start"]'
-      ];
-      
-      for (const selector of fallbackSelectors) {
-        const elements = postElement.querySelectorAll(selector);
-        for (const element of elements) {
-          // Skip if this element is likely metadata (very short or contains only symbols)
+        const textElements = postElement.querySelectorAll(selector);
+        
+        for (const element of textElements) {
           const text = element.textContent.trim();
-          if (text.length > 20 && 
-              !text.includes('·') && 
-              !text.includes('年') && 
-              !text.match(/^\d+$/)) {
-            return text.replace(/\s+/g, ' ').replace(/展开$/, '');
+          
+          // Skip very short text or obvious UI elements
+          if (text.length < 8) continue;
+          if (text.match(/^[\d\s·年月日]+$/)) continue; // Skip pure dates/numbers
+          if (text === 'Reels' || text === '关注' || text === '打赏！' || text === '展开') continue;
+          
+          // Clean up the text
+          let cleanText = text
+            .replace(/展开$/, '') // Remove "展开" at the end
+            .replace(/\s+/g, ' ') // Normalize spaces
+            .trim();
+          
+          if (cleanText.length >= 8) {
+            allFoundTexts.push(cleanText);
           }
         }
       }
       
-      return '';
+      // Approach 2: Look for any text that might be hidden or in different elements
+      const allElements = postElement.querySelectorAll('*');
+      for (const element of allElements) {
+        // Skip elements with many children (likely containers)
+        if (element.children.length > 3) continue;
+        
+        const text = element.textContent.trim();
+        
+        // Look for substantial text content
+        if (text.length > 20 && 
+            !text.match(/^[\d\s·年月日]+$/) && 
+            text !== 'Reels' && text !== '关注' && text !== '打赏！' && text !== '展开') {
+          
+          let cleanText = text
+            .replace(/展开$/, '')
+            .replace(/\s+/g, ' ')
+            .trim();
+            
+          if (cleanText.length > 20) {
+            allFoundTexts.push(cleanText);
+          }
+        }
+      }
+      
+      // Find the longest and most meaningful text
+      if (allFoundTexts.length > 0) {
+        // Sort by length and content quality
+        allFoundTexts.sort((a, b) => {
+          // Prefer text with punctuation (sentences)
+          const aHasPunc = /[.!?]/.test(a);
+          const bHasPunc = /[.!?]/.test(b);
+          
+          if (aHasPunc && !bHasPunc) return -1;
+          if (!aHasPunc && bHasPunc) return 1;
+          
+          // Otherwise prefer longer text
+          return b.length - a.length;
+        });
+        
+        bestText = allFoundTexts[0];
+        
+        console.log(`[Facebook] Found ${allFoundTexts.length} text candidates, selected: "${bestText.substring(0, 50)}..."`);
+      }
+      
+      // Final cleanup
+      if (bestText) {
+        bestText = bestText
+          .replace(/Circuit\s*·\s*关注.*$/i, '') // Remove author info at the end
+          .replace(/Reels\s*·\s*\d+月\d+日.*$/i, '') // Remove Reels info at the end  
+          .replace(/打赏！.*$/i, '') // Remove tip info at the end
+          .replace(/\s+/g, ' ')
+          .trim();
+      }
+      
+      return bestText;
     } catch (error) {
       console.error('[Facebook] Error extracting text content:', error);
       return '';
     }
   }
 
+  // Note: Facebook's "展开" (expand) functionality requires server-side PHP requests
+  // so we cannot expand truncated content through client-side clicking.
+  // Instead, we focus on extracting all available text content more comprehensively.
+
   extractFacebookAuthorName(postElement) {
     try {
-      // Try multiple selectors for author name
-      const selectors = [
-        'h2 a[role="link"] b span',
-        'h2 b span',
-        '[data-ad-rendering-role="profile_name"] h2 b span',
-        '[data-ad-rendering-role="profile_name"] span',
-        'h2 span a b span'
-      ];
+      // Look for author name in links first (more reliable)
+      const authorLinks = postElement.querySelectorAll('a[href*="facebook.com/"]');
+      for (const link of authorLinks) {
+        const text = link.textContent.trim();
+        // Skip if it's a timestamp or UI element
+        if (text.length > 2 && text.length < 50 && 
+            !text.match(/^\d+月\d+日$/) && 
+            text !== 'Reels' && text !== '关注' && 
+            !text.includes('󰍸') && !text.includes('󰍹')) {
+          return text;
+        }
+      }
       
-      for (const selector of selectors) {
-        const element = postElement.querySelector(selector);
-        if (element && element.textContent.trim()) {
-          return element.textContent.trim();
+      // Fallback: look for text in h3 or other header elements
+      const headerElements = postElement.querySelectorAll('h3, .html-h3');
+      for (const element of headerElements) {
+        const text = element.textContent.trim();
+        if (text.length > 2 && text.length < 50 && !text.match(/[󰍸󰍹󰐑󰍺\d年月日·]/)) {
+          return text;
+        }
+      }
+      
+      // Last fallback: look for any text element that could be an author
+      const textElements = postElement.querySelectorAll('span.x193iq5w, [dir="auto"]');
+      for (const element of textElements) {
+        const text = element.textContent.trim();
+        if (text.length > 2 && text.length < 50 && 
+            !text.match(/[󰍸󰍹󰐑󰍺\d年月日·]/) && 
+            text !== 'Reels' && text !== '关注' && text !== '打赏！') {
+          return text;
         }
       }
       
@@ -239,23 +324,35 @@ class FacebookCrawler extends BaseCrawler {
 
   extractFacebookTimestamp(postElement) {
     try {
-      // Facebook timestamps are often in links with specific aria-labels
+      // Look for timestamp patterns in the actual structure
       const timestampSelectors = [
-        'a[aria-label*="年"][aria-label*="月"]',
-        'a[aria-label*="日"]',
+        'span.x4k7w5x.x1h91t0o.x1h9r5lt.x1jfb8zj.xv2umb2.x1beo9mf.xaigb6o.x12ejxvf.x3igimt.xarpa2k.xedcshv.x1lytzrv.x1t2pt76.x7ja8zs.x1qrby5j',  // Date span from example
         'time',
-        '[data-testid="story-subtitle"] a'
+        '[data-testid="story-subtitle"] a',
+        'a[aria-label*="年"][aria-label*="月"]',
+        'a[aria-label*="日"]'
       ];
       
       for (const selector of timestampSelectors) {
         const element = postElement.querySelector(selector);
         if (element) {
+          const text = element.textContent.trim();
+          // Check if it looks like a date (e.g., "7月30日")
+          if (text.match(/\d+月\d+日/) || text.match(/\d{1,2}:\d{2}/) || text.match(/\d+ hours ago|hours ago/)) {
+            return text;
+          }
           if (element.getAttribute('aria-label')) {
             return element.getAttribute('aria-label');
           }
-          if (element.textContent.trim()) {
-            return element.textContent.trim();
-          }
+        }
+      }
+      
+      // Fallback: look for any text that looks like a timestamp
+      const allSpans = postElement.querySelectorAll('span');
+      for (const span of allSpans) {
+        const text = span.textContent.trim();
+        if (text.match(/^\d+月\d+日$/) || text.match(/^\d+:\d+$/)) {
+          return text;
         }
       }
       
@@ -333,34 +430,58 @@ class FacebookCrawler extends BaseCrawler {
     };
 
     try {
-      // Extract likes - Facebook shows like counts in specific areas
-      const likeElements = postElement.querySelectorAll('[aria-label*="赞："], .x1kmio9f span');
-      for (const element of likeElements) {
-        const text = element.textContent || element.getAttribute('aria-label') || '';
-        const likeMatch = text.match(/赞：\s*(\d+)|(\d+)\s*人/);
-        if (likeMatch) {
-          metrics.likes = parseInt(likeMatch[1] || likeMatch[2]) || 0;
-          break;
-        }
-      }
+      // Extract metrics from button aria-labels in mobile structure
+      const buttons = postElement.querySelectorAll('[role="button"][aria-label]');
       
-      // Extract comments and shares from button areas
-      const buttons = postElement.querySelectorAll('[aria-label*="评论"], [aria-label*="分享"]');
-      buttons.forEach(button => {
+      for (const button of buttons) {
         const label = button.getAttribute('aria-label') || '';
-        if (label.includes('评论')) {
+        
+        // Like button - look for "个like" pattern
+        if (label.includes('like') || label.includes('个like')) {
+          const likeMatch = label.match(/(\d+)/);
+          if (likeMatch) {
+            metrics.likes = parseInt(likeMatch[1]) || 0;
+          }
+        }
+        
+        // Comment button - look for "comments" pattern  
+        if (label.includes('comment') || label.includes('comments')) {
           const commentMatch = label.match(/(\d+)/);
           if (commentMatch) {
             metrics.comments = parseInt(commentMatch[1]) || 0;
           }
         }
-        if (label.includes('分享')) {
+        
+        // Share button
+        if (label.includes('share') || label.includes('分享')) {
           const shareMatch = label.match(/(\d+)/);
           if (shareMatch) {
             metrics.shares = parseInt(shareMatch[1]) || 0;
           }
         }
-      });
+      }
+      
+      // Also check text content for metrics
+      const textElements = postElement.querySelectorAll('.native-text');
+      for (const element of textElements) {
+        const text = element.textContent.trim();
+        
+        // Look for "󰍹 1" pattern for comments
+        if (text.includes('󰍹')) {
+          const commentMatch = text.match(/󰍹\s*(\d+)/);
+          if (commentMatch) {
+            metrics.comments = parseInt(commentMatch[1]) || 0;
+          }
+        }
+        
+        // Look for pure numbers that might be like counts
+        if (text.match(/^\d+$/)) {
+          const num = parseInt(text);
+          if (num > 0 && metrics.likes === 0) {
+            metrics.likes = num;
+          }
+        }
+      }
       
     } catch (error) {
       console.error('[Facebook] Error extracting metrics:', error);
@@ -501,6 +622,73 @@ class FacebookCrawler extends BaseCrawler {
     }
     
     return comments;
+  }
+
+  // Create unique IDs for Facebook posts based primarily on text content
+  createFacebookPostId(postElement, text, author, timestamp) {
+    try {
+      // Use text content as the primary identifier for deduplication
+      let contentForId = '';
+      
+      // 1. Use the actual text content (cleaned) as primary identifier
+      if (text && text.length > 0) {
+        // Remove "展开" and other UI elements, normalize spaces
+        contentForId = text
+          .replace(/展开$/, '')
+          .replace(/Circuit\s*·\s*关注.*$/i, '')
+          .replace(/Reels\s*·\s*\d+月\d+日.*$/i, '')
+          .replace(/打赏！.*$/i, '')
+          .replace(/\s+/g, ' ')
+          .trim();
+      }
+      
+      // 2. If no meaningful text, try to find unique identifiers
+      const identifiers = [];
+      
+      if (contentForId) {
+        // Use the full cleaned text content as the main identifier
+        identifiers.push(contentForId);
+      } else {
+        // Fallback: use other identifiers if no text
+        const reelLink = postElement.querySelector('a[href*="/reel/"]');
+        if (reelLink) {
+          const hrefMatch = reelLink.href.match(/\/reel\/(\d+)/);
+          if (hrefMatch) {
+            identifiers.push(hrefMatch[1]);
+          }
+        }
+        
+        const pageletData = postElement.getAttribute('data-pagelet');
+        if (pageletData) {
+          identifiers.push(pageletData);
+        }
+        
+        // Use author and timestamp as backup
+        if (author) identifiers.push(author);
+        if (timestamp) identifiers.push(timestamp);
+      }
+      
+      // Create hash from the content
+      const content = identifiers.join('|');
+      let hash = 0;
+      for (let i = 0; i < content.length; i++) {
+        const char = content.charCodeAt(i);
+        hash = ((hash << 5) - hash) + char;
+        hash = hash & hash; // Convert to 32-bit integer
+      }
+      
+      // Create final ID based primarily on content
+      const baseHash = Math.abs(hash).toString(36);
+      const finalId = `fb_${baseHash}`;
+      
+      console.log(`[Facebook] Generated content-based ID: ${finalId} from text: "${contentForId.substring(0, 50)}..."`);
+      return finalId;
+      
+    } catch (error) {
+      console.error('[Facebook] Error creating post ID:', error);
+      // Fallback to base method
+      return this.createPostId(text, author, timestamp);
+    }
   }
 
   // Extract company name from current page URL or post context
@@ -681,12 +869,12 @@ class FacebookCrawler extends BaseCrawler {
       subtree: true
     });
     
-    // Slower auto-scroll for Facebook to allow content loading
+    // Fast auto-scroll for Facebook
     this.scrollInterval = setInterval(() => {
       if (this.isRunning) {
         this.autoScroll();
       }
-    }, 3000); // Scroll every 3 seconds instead of 1 second
+    }, 500); // Scroll every 500ms for fast crawling
     
     console.log(`[${this.platform}] Started crawler with slower intervals for content loading`);
   }
