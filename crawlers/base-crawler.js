@@ -1070,6 +1070,10 @@ class BaseCrawler {
           this.processTopPost();
         }, 1000);
         
+      } else if (this.platform === 'tiktok') {
+        // For TikTok, we don't control scrolling - rely on native TikTok autoscroll
+        console.log('[TikTok] Relying on native TikTok autoscroll, not controlling scroll programmatically');
+        return; // Don't scroll programmatically for TikTok
       } else {
         // For other platforms, use the original logic with findNextPostToScrollTo
         const nextPost = this.findNextPostToScrollTo();

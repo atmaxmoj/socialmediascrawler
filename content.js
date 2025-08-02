@@ -11,6 +11,8 @@ function detectPlatform() {
     return 'facebook';
   } else if (hostname.includes('instagram.com')) {
     return 'instagram';
+  } else if (hostname.includes('tiktok.com')) {
+    return 'tiktok';
   }
   return 'unknown';
 }
@@ -25,6 +27,8 @@ function createCrawler(platform) {
       return new RedditCrawler();
     case 'facebook':
       return new FacebookCrawler();
+    case 'tiktok':
+      return new TikTokCrawler();
     case 'instagram':
       // TODO: Implement InstagramCrawler
       console.warn('Instagram crawler not yet implemented');

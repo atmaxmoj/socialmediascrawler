@@ -4,7 +4,7 @@ A Chrome extension that automatically crawls and extracts posts from social medi
 
 ## ✨ Features
 
-- **Multi-Platform Support**: Crawl posts from Twitter/X, LinkedIn, Facebook, Instagram, and Reddit
+- **Multi-Platform Support**: Crawl posts from Twitter/X, LinkedIn, Facebook, Instagram, Reddit, and TikTok
 - **Smart Post Extraction**: Automatically extracts post content, author information, timestamps, engagement metrics, and media
 - **Intelligent Scrolling**: Uses post-height-based scrolling to efficiently navigate through feeds
 - **Duplicate Detection**: Prevents re-crawling of already saved posts
@@ -34,7 +34,7 @@ A Chrome extension that automatically crawls and extracts posts from social medi
 
 ### 1. Basic Setup
 
-1. **Navigate to Target Page**: Go to any supported social media platform (Twitter/X, LinkedIn, Facebook, Instagram, or Reddit)
+1. **Navigate to Target Page**: Go to any supported social media platform (Twitter/X, LinkedIn, Facebook, Instagram, Reddit, or TikTok)
 
 2. **Activate Extension**: Click the extension icon in your Chrome toolbar
 
@@ -92,6 +92,7 @@ The floating control panel appears in the top-right corner of the webpage and in
 | **Facebook** | ✅ Full Support | Posts, comments, reactions, media |
 | **Instagram** | ✅ Full Support | Posts, stories, captions, hashtags |
 | **Reddit** | ✅ Full Support | Posts, comments, subreddits, awards |
+| **TikTok** | ✅ Full Support | Videos, captions, transcripts, music, effects |
 
 ## 🔧 Technical Details
 
@@ -108,7 +109,7 @@ The floating control panel appears in the top-right corner of the webpage and in
 ```javascript
 {
   id: "unique_post_identifier",
-  platform: "twitter|linkedin|facebook|instagram|reddit",
+  platform: "twitter|linkedin|facebook|instagram|reddit|tiktok",
   company: "extracted_company_name",
   author: {
     name: "Author Name",
@@ -117,6 +118,7 @@ The floating control panel appears in the top-right corner of the webpage and in
     profileUrl: "profile_url"
   },
   text: "post_content",
+  transcript: "video_transcript", // for TikTok videos
   title: "post_title", // if applicable
   timestamp: "ISO_datetime",
   url: "post_url",
@@ -125,7 +127,8 @@ The floating control panel appears in the top-right corner of the webpage and in
     likes: 0,
     shares: 0,
     comments: 0,
-    views: 0 // platform dependent
+    views: 0, // platform dependent
+    collects: 0 // TikTok saves/bookmarks
   },
   media: {
     images: [...],

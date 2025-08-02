@@ -16,7 +16,9 @@
     "https://www.facebook.com/*",
     "https://instagram.com/*",
     "https://reddit.com/*",
-    "https://old.reddit.com/*"
+    "https://old.reddit.com/*",
+    "https://www.tiktok.com/*",
+    "https://tiktok.com/*"
   ],
   "action": {
     "default_popup": "popup.html",
@@ -29,10 +31,12 @@
         "https://x.com/*",
         "https://linkedin.com/*",
         "https://facebook.com/*",
-    "https://www.facebook.com/*",
+        "https://www.facebook.com/*",
         "https://instagram.com/*",
         "https://reddit.com/*",
-        "https://old.reddit.com/*"
+        "https://old.reddit.com/*",
+        "https://www.tiktok.com/*",
+        "https://tiktok.com/*"
       ],
       "js": [
         "db.js", 
@@ -41,6 +45,7 @@
         "crawlers/linkedin-crawler.js", 
         "crawlers/facebook-crawler.js",
         "crawlers/reddit-crawler.js",
+        "crawlers/tiktok-crawler.js",
         "content.js"
       ],
       "run_at": "document_end"

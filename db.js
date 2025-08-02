@@ -281,8 +281,8 @@ class PostsDB {
           const authorName = (post.author?.name || '').replace(/"/g, '""');
           const authorHandle = (post.author?.handle || '').replace(/"/g, '""');
           const likes = post.metrics?.likes || 0;
-          const retweets = post.metrics?.retweets || 0;
-          const replies = post.metrics?.replies || 0;
+          const retweets = post.metrics?.retweets || post.metrics?.shares || 0; // Use shares for TikTok
+          const replies = post.metrics?.replies || post.metrics?.comments || 0; // Use comments for TikTok
           const views = post.metrics?.views || 0;
           return `"${post.id}","${post.platform}","${authorName}","${authorHandle}","${text}","${post.timestamp}","${post.url}","${post.crawledAt}","${likes}","${retweets}","${replies}","${views}"`;
         }).join('\n');
@@ -358,8 +358,8 @@ class PostsDB {
           const authorHandle = (post.author?.handle || '').replace(/"/g, '""');
           const company = (post.company || '').replace(/"/g, '""');
           const likes = post.metrics?.likes || 0;
-          const retweets = post.metrics?.retweets || 0;
-          const replies = post.metrics?.replies || 0;
+          const retweets = post.metrics?.retweets || post.metrics?.shares || 0; // Use shares for TikTok
+          const replies = post.metrics?.replies || post.metrics?.comments || 0; // Use comments for TikTok
           const views = post.metrics?.views || 0;
           return `"${post.id}","${post.platform}","${company}","${authorName}","${authorHandle}","${text}","${post.timestamp}","${post.url}","${post.crawledAt}","${likes}","${retweets}","${replies}","${views}"`;
         }).join('\n');
