@@ -887,20 +887,51 @@ class TikTokCrawler extends BaseCrawler {
           // Video was already crawled, but we got data for UI update
           console.log(`[TikTok] Video already recorded (ID: ${postData.id}), showing indicator`);
           this.showAlreadyRecordedIndicator();
+          
+          // Move to next video after a random delay to simulate human behavior
+          const randomDelay = 500 + Math.random() * 500; // 500-1000ms random delay
+          setTimeout(() => {
+            console.log('[TikTok] Moving to next video (already crawled)');
+            this.findNextPostToScrollTo();
+          }, randomDelay);
+          
           return false;
         } else if (!this.crawledPosts.has(postData.id)) {
           console.log(`[TikTok] Recording new video: ${this.formatLogText(postData.text || postData.url, 50)}`);
           this.hideAlreadyRecordedIndicator();
           await this.savePost(postData);
+          
+          // Move to next video after processing current one with random delay
+          const randomDelay = 500 + Math.random() * 500; // 500-1000ms random delay
+          setTimeout(() => {
+            console.log('[TikTok] Video saved, moving to next video');
+            this.findNextPostToScrollTo();
+          }, randomDelay);
+          
           return true;
         } else {
           console.log(`[TikTok] Video already recorded (ID: ${postData.id})`);
           this.showAlreadyRecordedIndicator();
+          
+          // Move to next video after a random delay to simulate human behavior
+          const randomDelay = 2000 + Math.random() * 1000; // 2-3 seconds + random 500-1000ms
+          setTimeout(() => {
+            console.log('[TikTok] Moving to next video (already in memory)');
+            this.findNextPostToScrollTo();
+          }, randomDelay);
+          
           return false;
         }
       } else {
         console.log('[TikTok] Could not extract video data');
         this.updateCurrentContent('Failed to extract video data');
+        
+        // Still try to move to next video even if extraction failed
+        setTimeout(() => {
+          console.log('[TikTok] Extraction failed, trying next video');
+          this.findNextPostToScrollTo();
+        }, 3000);
+        
         return false;
       }
     } catch (error) {
@@ -959,11 +990,65 @@ class TikTokCrawler extends BaseCrawler {
     return container;
   }
 
-  // TikTok doesn't need this method since we rely on native scrolling
+  // Find and click the next video button to navigate to next video
   findNextPostToScrollTo() {
-    // This method is not used for TikTok since we rely on native autoscroll
-    console.log('[TikTok] findNextPostToScrollTo() not needed - using native TikTok autoscroll');
-    return null;
+    try {
+      // Look for the "Go to next video" button
+      const nextVideoButton = document.querySelector('button[data-e2e="arrow-right"][aria-label*="next video" i], button[data-e2e="arrow-right"]');
+      
+      if (nextVideoButton) {
+        console.log('[TikTok] Found next video button, clicking to navigate to next video');
+        
+        // Check if button is visible and clickable
+        const rect = nextVideoButton.getBoundingClientRect();
+        if (rect.width > 0 && rect.height > 0) {
+          // Simulate click on the next video button
+          nextVideoButton.click();
+          
+          console.log('[TikTok] Successfully clicked next video button');
+          return true;
+        } else {
+          console.log('[TikTok] Next video button found but not visible');
+          return false;
+        }
+      } else {
+        console.log('[TikTok] No next video button found on page');
+        
+        // Alternative: try keyboard navigation (arrow key)
+        console.log('[TikTok] Trying keyboard arrow down navigation as fallback');
+        return this.navigateWithKeyboard();
+      }
+    } catch (error) {
+      console.error('[TikTok] Error finding/clicking next video button:', error);
+      return false;
+    }
+  }
+  
+  // Navigate to next video using keyboard arrow keys
+  navigateWithKeyboard() {
+    try {
+      // Create and dispatch arrow down key event to navigate to next video
+      const arrowDownEvent = new KeyboardEvent('keydown', {
+        key: 'ArrowDown',
+        code: 'ArrowDown',
+        keyCode: 40,
+        which: 40,
+        bubbles: true,
+        cancelable: true
+      });
+      
+      // Dispatch to document or video element
+      const videoElement = document.querySelector('video');
+      const target = videoElement || document.body;
+      
+      target.dispatchEvent(arrowDownEvent);
+      console.log('[TikTok] Dispatched ArrowDown key event for next video navigation');
+      
+      return true;
+    } catch (error) {
+      console.error('[TikTok] Error with keyboard navigation:', error);
+      return false;
+    }
   }
 
   // Trigger TikTok's native download functionality via right-click
