@@ -117,10 +117,7 @@ class TikTokCrawler extends BaseCrawler {
       
       console.log(`[TikTok] New video detected (ID: ${uniqueId}), triggering download...`);
       
-      // Trigger TikTok's native download if this is a new video
-      this.triggerNativeDownload();
-      
-      // Extract additional data
+      // Extract additional data first so we can generate meaningful filename
       const avatar = this.extractTikTokAvatar(postElement);
       const profileUrl = this.extractTikTokProfileUrl(postElement);
       const metrics = this.extractTikTokMetrics(postElement);
@@ -134,8 +131,40 @@ class TikTokCrawler extends BaseCrawler {
       const videoUrl = videoElement ? videoElement.src || videoElement.currentSrc : '';
       const videoDuration = videoElement ? videoElement.duration : 0;
       
-      // For TikTok UGC content, company should always be 'NA'
-      // Create post data
+      // Create preliminary post data for filename generation
+      const preliminaryPostData = {
+        id: uniqueId,
+        platform: this.platform,
+        company: 'NA',
+        author: {
+          name: authorName,
+          avatar: avatar,
+          profileUrl: profileUrl
+        },
+        text: description,
+        transcript: transcript,
+        timestamp: timestamp,
+        url: window.location.href,
+        videoUrl: videoUrl,
+        videoDuration: videoDuration,
+        music: music,
+        effects: effects,
+        location: location,
+        metrics: metrics,
+        hashtags: hashtags,
+        mentions: mentions
+      };
+      
+      // Use custom download approach for meaningful filenames
+      console.log('[TikTok] Attempting custom download with meaningful filename');
+      const downloadResult = await this.attemptCustomDownload(preliminaryPostData);
+      
+      if (!downloadResult.success) {
+        console.log('[TikTok] Custom download failed, falling back to native download');
+        this.triggerNativeDownload(preliminaryPostData);
+      }
+      
+      // Create final post data
       const postData = {
         id: uniqueId,
         platform: this.platform,
@@ -150,7 +179,12 @@ class TikTokCrawler extends BaseCrawler {
         timestamp: timestamp,
         url: currentVideoUrl,
         crawledAt: new Date().toISOString(),
-        downloaded: true, // Mark that we triggered download
+        downloaded: true, // Mark that we triggered native download
+        
+        // Filename information for matching downloaded files
+        suggestedFilename: this.generateVideoFilename(preliminaryPostData),
+        actualFilename: downloadResult.success ? downloadResult.filename : null,
+        downloadMethod: downloadResult.success ? 'custom' : 'native',
         
         // TikTok-specific fields
         videoUrl: videoUrl,
@@ -831,7 +865,9 @@ class TikTokCrawler extends BaseCrawler {
       
       // Add longer delay for video switching to allow new content to load
       setTimeout(() => {
-        this.processTikTokVideo();
+        if (this.isRunning) { // Check if still running before processing
+          this.processTikTokVideo();
+        }
       }, 3000); // Increased delay for video switching
     } else if (!this.currentVideoUrl) {
       // First time processing
@@ -840,7 +876,9 @@ class TikTokCrawler extends BaseCrawler {
       
       // Add delay to allow video element to load if page just loaded
       setTimeout(() => {
-        this.processTikTokVideo();
+        if (this.isRunning) { // Check if still running before processing
+          this.processTikTokVideo();
+        }
       }, 1500); // Slightly increased initial delay
     } else {
       // Same video - don't process repeatedly to avoid infinite loops
@@ -888,11 +926,15 @@ class TikTokCrawler extends BaseCrawler {
           console.log(`[TikTok] Video already recorded (ID: ${postData.id}), showing indicator`);
           this.showAlreadyRecordedIndicator();
           
-          // Move to next video after a random delay to simulate human behavior
-          const randomDelay = 500 + Math.random() * 500; // 500-1000ms random delay
+          // Move to next video after a longer delay to simulate human behavior
+          const randomDelay = 3000 + Math.random() * 2000; // 3-5 second delay
           setTimeout(() => {
-            console.log('[TikTok] Moving to next video (already crawled)');
-            this.findNextPostToScrollTo();
+            if (this.isRunning) { // Check if still running before moving
+              console.log('[TikTok] Moving to next video (already crawled)');
+              this.findNextPostToScrollTo();
+            } else {
+              console.log('[TikTok] Crawler stopped, not moving to next video');
+            }
           }, randomDelay);
           
           return false;
@@ -901,11 +943,15 @@ class TikTokCrawler extends BaseCrawler {
           this.hideAlreadyRecordedIndicator();
           await this.savePost(postData);
           
-          // Move to next video after processing current one with random delay
-          const randomDelay = 500 + Math.random() * 500; // 500-1000ms random delay
+          // Move to next video after processing current one with longer delay
+          const randomDelay = 3000 + Math.random() * 2000; // 3-5 second delay
           setTimeout(() => {
-            console.log('[TikTok] Video saved, moving to next video');
-            this.findNextPostToScrollTo();
+            if (this.isRunning) { // Check if still running before moving
+              console.log('[TikTok] Video saved, moving to next video');
+              this.findNextPostToScrollTo();
+            } else {
+              console.log('[TikTok] Crawler stopped, not moving to next video');
+            }
           }, randomDelay);
           
           return true;
@@ -913,11 +959,15 @@ class TikTokCrawler extends BaseCrawler {
           console.log(`[TikTok] Video already recorded (ID: ${postData.id})`);
           this.showAlreadyRecordedIndicator();
           
-          // Move to next video after a random delay to simulate human behavior
-          const randomDelay = 2000 + Math.random() * 1000; // 2-3 seconds + random 500-1000ms
+          // Move to next video after a longer delay
+          const randomDelay = 3000 + Math.random() * 2000; // 3-5 second delay
           setTimeout(() => {
-            console.log('[TikTok] Moving to next video (already in memory)');
-            this.findNextPostToScrollTo();
+            if (this.isRunning) { // Check if still running before moving
+              console.log('[TikTok] Moving to next video (already in memory)');
+              this.findNextPostToScrollTo();
+            } else {
+              console.log('[TikTok] Crawler stopped, not moving to next video');
+            }
           }, randomDelay);
           
           return false;
@@ -928,9 +978,13 @@ class TikTokCrawler extends BaseCrawler {
         
         // Still try to move to next video even if extraction failed
         setTimeout(() => {
-          console.log('[TikTok] Extraction failed, trying next video');
-          this.findNextPostToScrollTo();
-        }, 3000);
+          if (this.isRunning) { // Check if still running before moving
+            console.log('[TikTok] Extraction failed, trying next video');
+            this.findNextPostToScrollTo();
+          } else {
+            console.log('[TikTok] Crawler stopped, not trying next video');
+          }
+        }, 5000); // Increased delay for failed extractions
         
         return false;
       }
@@ -1051,8 +1105,340 @@ class TikTokCrawler extends BaseCrawler {
     }
   }
 
+  // Generate meaningful filename for TikTok video download
+  generateVideoFilename(postData) {
+    try {
+      // Use the CSV ID as the primary filename for easy matching
+      const csvId = postData.id;
+      
+      if (csvId) {
+        const filename = `${csvId}.mp4`;
+        console.log(`[TikTok] Generated filename using CSV ID: ${filename}`);
+        return filename;
+      }
+      
+      // Fallback: if no ID, use video ID from URL
+      const videoIdMatch = window.location.pathname.match(/\/video\/(\d+)/);
+      if (videoIdMatch && videoIdMatch[1]) {
+        const filename = `tiktok_${videoIdMatch[1]}.mp4`;
+        console.log(`[TikTok] Generated filename using video ID: ${filename}`);
+        return filename;
+      }
+      
+      // Last resort fallback
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const filename = `tiktok_video_${timestamp}.mp4`;
+      console.log(`[TikTok] Generated fallback filename: ${filename}`);
+      return filename;
+      
+    } catch (error) {
+      console.error('[TikTok] Error generating filename:', error);
+      // Fallback to simple timestamp
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      return `tiktok_video_${timestamp}.mp4`;
+    }
+  }
+
+  // Test direct video download feasibility
+  async testDirectDownload(postData) {
+    try {
+      // Find the video element
+      const videoElement = document.querySelector('video');
+      if (!videoElement) {
+        console.log('[TikTok] No video element found for direct download test');
+        return false;
+      }
+
+      // Get video URLs
+      const videoSrc = videoElement.src || videoElement.currentSrc;
+      console.log('[TikTok] Video source URL:', videoSrc);
+      
+      // Check if there are multiple sources
+      const sources = videoElement.querySelectorAll('source');
+      if (sources.length > 0) {
+        console.log('[TikTok] Found video sources:');
+        sources.forEach((source, index) => {
+          console.log(`  Source ${index + 1}: ${source.src} (type: ${source.type})`);
+        });
+      }
+      
+      // Test if we can access the video URL directly
+      console.log('[TikTok] Testing direct access to video URL...');
+      
+      try {
+        // Try a HEAD request first to check accessibility
+        const headResponse = await fetch(videoSrc, { 
+          method: 'HEAD',
+          mode: 'cors'
+        });
+        
+        console.log('[TikTok] HEAD request successful:');
+        console.log('  Status:', headResponse.status);
+        console.log('  Content-Type:', headResponse.headers.get('content-type'));
+        console.log('  Content-Length:', headResponse.headers.get('content-length'));
+        console.log('  Content-Disposition:', headResponse.headers.get('content-disposition'));
+        
+        // If HEAD works, try a small range request
+        const rangeResponse = await fetch(videoSrc, {
+          method: 'GET',
+          headers: {
+            'Range': 'bytes=0-1023'  // Request first 1KB
+          },
+          mode: 'cors'
+        });
+        
+        console.log('[TikTok] Range request successful:');
+        console.log('  Status:', rangeResponse.status);
+        console.log('  Content-Range:', rangeResponse.headers.get('content-range'));
+        
+        return true;
+        
+      } catch (corsError) {
+        console.log('[TikTok] CORS Error - direct download not possible:', corsError.message);
+        
+        // Try alternative: check if video has blob URL
+        if (videoSrc.startsWith('blob:')) {
+          console.log('[TikTok] Video uses blob URL, checking blob access...');
+          try {
+            const blobResponse = await fetch(videoSrc);
+            const blobSize = (await blobResponse.blob()).size;
+            console.log('[TikTok] Blob access successful, size:', blobSize, 'bytes');
+            return true;
+          } catch (blobError) {
+            console.log('[TikTok] Blob access failed:', blobError.message);
+          }
+        }
+        
+        return false;
+      }
+      
+    } catch (error) {
+      console.error('[TikTok] Error testing direct download:', error);
+      return false;
+    }
+  }
+
+  // Attempt custom video download with meaningful filename
+  async attemptCustomDownload(postData) {
+    try {
+      const videoElement = document.querySelector('video');
+      if (!videoElement) {
+        console.log('[TikTok] No video element found for custom download');
+        return { success: false, filename: null };
+      }
+
+      const suggestedFilename = this.generateVideoFilename(postData);
+      console.log(`[TikTok] Attempting custom download: ${suggestedFilename}`);
+      
+      // Strategy 1: Try immediate blob capture for blob URLs (timing critical)
+      const videoSrc = videoElement.src || videoElement.currentSrc;
+      if (videoSrc && videoSrc.startsWith('blob:')) {
+        console.log('[TikTok] Found blob URL, attempting immediate capture:', videoSrc);
+        try {
+          // Try to fetch the blob immediately without delay
+          const response = await fetch(videoSrc);
+          if (response.ok) {
+            const videoBlob = await response.blob();
+            console.log(`[TikTok] Successfully captured blob video, size: ${videoBlob.size} bytes`);
+            
+            this.downloadBlob(videoBlob, suggestedFilename);
+            return { success: true, filename: suggestedFilename };
+          } else {
+            console.log('[TikTok] Blob fetch returned error status:', response.status);
+          }
+        } catch (blobError) {
+          console.log('[TikTok] Blob fetch failed:', blobError.message);
+        }
+      }
+      
+      // Strategy 2: Try MediaSource blob extraction
+      try {
+        if (videoElement.src && videoElement.src.startsWith('blob:')) {
+          console.log('[TikTok] Attempting MediaSource blob extraction');
+          const blobResponse = await this.extractBlobFromMediaSource(videoElement);
+          if (blobResponse) {
+            console.log(`[TikTok] MediaSource extraction successful, size: ${blobResponse.size} bytes`);
+            this.downloadBlob(blobResponse, suggestedFilename);
+            return { success: true, filename: suggestedFilename };
+          }
+        }
+      } catch (msError) {
+        console.log('[TikTok] MediaSource extraction failed:', msError.message);
+      }
+      
+      // Strategy 3: Try direct fetch if video has accessible URL
+      if (videoSrc && !videoSrc.startsWith('blob:')) {
+        try {
+          const response = await fetch(videoSrc, {
+            method: 'GET',
+            mode: 'cors'
+          });
+          
+          if (response.ok) {
+            const videoBlob = await response.blob();
+            console.log(`[TikTok] Downloaded video blob, size: ${videoBlob.size} bytes`);
+            
+            this.downloadBlob(videoBlob, suggestedFilename);
+            return { success: true, filename: suggestedFilename };
+          }
+        } catch (corsError) {
+          console.log('[TikTok] Direct fetch failed due to CORS:', corsError.message);
+        }
+      }
+      
+      // Strategy 4: Try alternative video source elements
+      try {
+        const sources = videoElement.querySelectorAll('source');
+        for (const source of sources) {
+          const sourceSrc = source.src;
+          if (sourceSrc) {
+            try {
+              let response;
+              if (sourceSrc.startsWith('blob:')) {
+                // Try immediate blob fetch
+                response = await fetch(sourceSrc);
+              } else {
+                // Try CORS fetch for regular URLs
+                response = await fetch(sourceSrc, {
+                  method: 'GET',
+                  mode: 'cors'
+                });
+              }
+              
+              if (response.ok) {
+                const videoBlob = await response.blob();
+                console.log(`[TikTok] Downloaded video from source, size: ${videoBlob.size} bytes`);
+                
+                this.downloadBlob(videoBlob, suggestedFilename);
+                return { success: true, filename: suggestedFilename };
+              }
+            } catch (sourceError) {
+              console.log('[TikTok] Source fetch failed:', sourceError.message);
+              continue; // Try next source
+            }
+          }
+        }
+      } catch (sourceError) {
+        console.log('[TikTok] Source strategy failed:', sourceError.message);
+      }
+      
+      // Strategy 5: Try canvas capture as absolute fallback (video frames only)
+      try {
+        console.log('[TikTok] Attempting canvas capture as fallback');
+        const canvasBlob = await this.captureVideoFrame(videoElement, suggestedFilename);
+        if (canvasBlob) {
+          return { success: true, filename: suggestedFilename.replace('.mp4', '.png') };
+        }
+      } catch (canvasError) {
+        console.log('[TikTok] Canvas capture failed:', canvasError.message);
+      }
+      
+      console.log('[TikTok] All custom download strategies failed');
+      return { success: false, filename: null };
+      
+    } catch (error) {
+      console.error('[TikTok] Custom download error:', error);
+      return { success: false, filename: null };
+    }
+  }
+  
+  // Extract blob from MediaSource if possible
+  async extractBlobFromMediaSource(videoElement) {
+    try {
+      // Check if we can access the video's buffered data
+      if (videoElement.buffered && videoElement.buffered.length > 0) {
+        console.log('[TikTok] Video has buffered data, attempting extraction');
+        
+        // Try to get the video stream via MediaRecorder
+        const stream = videoElement.captureStream ? videoElement.captureStream() : null;
+        if (stream) {
+          console.log('[TikTok] Captured video stream, attempting recording');
+          
+          return new Promise((resolve, reject) => {
+            const chunks = [];
+            const mediaRecorder = new MediaRecorder(stream);
+            
+            mediaRecorder.ondataavailable = (event) => {
+              if (event.data.size > 0) {
+                chunks.push(event.data);
+              }
+            };
+            
+            mediaRecorder.onstop = () => {
+              const videoBlob = new Blob(chunks, { type: 'video/mp4' });
+              resolve(videoBlob);
+            };
+            
+            mediaRecorder.onerror = (error) => {
+              reject(error);
+            };
+            
+            // Record for a short duration to capture current video
+            mediaRecorder.start();
+            setTimeout(() => {
+              mediaRecorder.stop();
+            }, 3000); // Record for 3 seconds
+          });
+        }
+      }
+      
+      return null;
+    } catch (error) {
+      console.log('[TikTok] MediaSource extraction error:', error.message);
+      return null;
+    }
+  }
+  
+  // Capture single video frame as fallback
+  async captureVideoFrame(videoElement, filename) {
+    try {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      
+      canvas.width = videoElement.videoWidth || 640;
+      canvas.height = videoElement.videoHeight || 480;
+      
+      // Draw current video frame to canvas
+      ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
+      
+      return new Promise((resolve) => {
+        canvas.toBlob((blob) => {
+          if (blob) {
+            console.log(`[TikTok] Captured video frame as PNG, size: ${blob.size} bytes`);
+            this.downloadBlob(blob, filename.replace('.mp4', '.png'));
+            resolve(blob);
+          } else {
+            resolve(null);
+          }
+        }, 'image/png');
+      });
+    } catch (error) {
+      console.log('[TikTok] Frame capture error:', error.message);
+      return null;
+    }
+  }
+  
+  // Helper method to download blob with filename
+  downloadBlob(blob, filename) {
+    const downloadUrl = URL.createObjectURL(blob);
+    const downloadLink = document.createElement('a');
+    downloadLink.href = downloadUrl;
+    downloadLink.download = filename;
+    downloadLink.style.display = 'none';
+    
+    // Trigger download
+    document.body.appendChild(downloadLink);
+    downloadLink.click();
+    document.body.removeChild(downloadLink);
+    
+    // Clean up object URL
+    setTimeout(() => {
+      URL.revokeObjectURL(downloadUrl);
+    }, 1000);
+  }
+
   // Trigger TikTok's native download functionality via right-click
-  triggerNativeDownload() {
+  triggerNativeDownload(postData) {
     try {
       // Find the video element
       const videoElement = document.querySelector('video');
@@ -1061,7 +1447,10 @@ class TikTokCrawler extends BaseCrawler {
         return false;
       }
 
-      console.log('[TikTok] Found video element, simulating right-click for download menu');
+      // Generate meaningful filename
+      const suggestedFilename = this.generateVideoFilename(postData);
+      console.log(`[TikTok] Found video element, suggested filename: ${suggestedFilename}`);
+      console.log('[TikTok] Simulating right-click for download menu');
       
       // Create and dispatch a contextmenu (right-click) event
       const rightClickEvent = new MouseEvent('contextmenu', {

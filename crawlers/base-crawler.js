@@ -634,9 +634,45 @@ class BaseCrawler {
       
       URL.revokeObjectURL(url);
       console.log(`[${this.platform}] Export completed successfully`);
+      
+      // Show helpful message about file matching for video platforms
+      if (format === 'csv' && (platformFilter === 'all' || platformFilter === 'tiktok')) {
+        setTimeout(() => {
+          this.showFileMatchingInstructions();
+        }, 1000);
+      }
     } catch (error) {
       console.error(`[${this.platform}] Export error:`, error);
       alert('Export failed: ' + error.message);
+    }
+  }
+  
+  // Show instructions for matching downloaded files with CSV entries
+  showFileMatchingInstructions() {
+    const instructions = `
+📁 Video File Matching Guide:
+
+Your CSV export includes these columns to help match downloaded videos:
+• "Suggested Filename" - The ideal filename for the video
+• "Actual Filename" - The filename used if custom download succeeded  
+• "Download Method" - Whether "custom" or "native" download was used
+
+To match videos with CSV entries:
+1. Look at the "Suggested Filename" column - this shows what the video should be named
+2. If "Download Method" is "custom", check "Actual Filename" for the exact filename used
+3. If "Download Method" is "native", files were downloaded with browser defaults
+4. Use the ID, Author Name, and Text columns to identify specific videos
+5. Video ID is embedded in suggested filenames for unique identification
+
+This system allows you to organize and categorize your downloaded videos effectively!
+    `;
+    
+    // Create a modal or use console for now
+    console.log(instructions);
+    
+    // Also try to show a user-friendly alert
+    if (confirm('📁 Your CSV includes filename information to help match downloaded videos. Would you like to see the matching guide?')) {
+      alert(instructions);
     }
   }
 

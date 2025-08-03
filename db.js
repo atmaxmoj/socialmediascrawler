@@ -351,7 +351,7 @@ class PostsDB {
         };
       
       case 'csv':
-        const csvHeader = 'ID,Platform,Company,Author Name,Author Handle,Text,Timestamp,URL,Crawled At,Likes,Retweets,Replies,Views\n';
+        const csvHeader = 'ID,Platform,Company,Author Name,Author Handle,Text,Timestamp,URL,Crawled At,Likes,Retweets,Replies,Views,Suggested Filename,Actual Filename,Download Method\n';
         const csvRows = posts.map(post => {
           const text = (post.text || '').replace(/"/g, '""').replace(/\n/g, ' ');
           const authorName = (post.author?.name || '').replace(/"/g, '""');
@@ -361,7 +361,10 @@ class PostsDB {
           const retweets = post.metrics?.retweets || post.metrics?.shares || 0; // Use shares for TikTok
           const replies = post.metrics?.replies || post.metrics?.comments || 0; // Use comments for TikTok
           const views = post.metrics?.views || 0;
-          return `"${post.id}","${post.platform}","${company}","${authorName}","${authorHandle}","${text}","${post.timestamp}","${post.url}","${post.crawledAt}","${likes}","${retweets}","${replies}","${views}"`;
+          const suggestedFilename = (post.suggestedFilename || '').replace(/"/g, '""');
+          const actualFilename = (post.actualFilename || '').replace(/"/g, '""');
+          const downloadMethod = (post.downloadMethod || '').replace(/"/g, '""');
+          return `"${post.id}","${post.platform}","${company}","${authorName}","${authorHandle}","${text}","${post.timestamp}","${post.url}","${post.crawledAt}","${likes}","${retweets}","${replies}","${views}","${suggestedFilename}","${actualFilename}","${downloadMethod}"`;
         }).join('\n');
         
         return {
