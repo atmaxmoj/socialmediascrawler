@@ -117,6 +117,10 @@ class TikTokCrawler extends BaseCrawler {
       
       console.log(`[TikTok] New video detected (ID: ${uniqueId}), triggering download...`);
       
+      // Immediately mark as being processed to prevent duplicate downloads
+      this.crawledPosts.add(uniqueId);
+      console.log(`[TikTok] Marked video as being processed: ${uniqueId}`);
+      
       // Extract additional data first so we can generate meaningful filename
       const avatar = this.extractTikTokAvatar(postElement);
       const profileUrl = this.extractTikTokProfileUrl(postElement);
