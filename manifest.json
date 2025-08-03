@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Social Media Posts Crawler",
+  "name": "Social Media Posts Scraper",
   "version": "1.0.0",
-  "description": "Crawl posts from company social media pages",
+  "description": "Scrape posts from company social media pages",
   "permissions": [
     "activeTab",
     "storage",
@@ -14,15 +14,12 @@
     "https://linkedin.com/*",
     "https://facebook.com/*",
     "https://www.facebook.com/*",
-    "https://instagram.com/*",
-    "https://reddit.com/*",
-    "https://old.reddit.com/*",
     "https://www.tiktok.com/*",
     "https://tiktok.com/*"
   ],
   "action": {
     "default_popup": "popup.html",
-    "default_title": "Posts Crawler"
+    "default_title": "Posts Scraper"
   },
   "content_scripts": [
     {
@@ -32,9 +29,6 @@
         "https://linkedin.com/*",
         "https://facebook.com/*",
         "https://www.facebook.com/*",
-        "https://instagram.com/*",
-        "https://reddit.com/*",
-        "https://old.reddit.com/*",
         "https://www.tiktok.com/*",
         "https://tiktok.com/*"
       ],

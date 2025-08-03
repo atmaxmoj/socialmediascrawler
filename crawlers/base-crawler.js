@@ -145,13 +145,13 @@ class BaseCrawler {
     this.controlPanel.innerHTML = `
       <div class="header">
         <div class="pulse-dot"></div>
-        Social Media Crawler
+        Social Media Scraper
       </div>
       
       <div class="status-info">
         <div class="status-line">
           Platform: ${this.platform.toUpperCase()}
-          <span class="platform-info-icon" data-tooltip="Supported platforms: X/Twitter, LinkedIn, Facebook">ⓘ</span>
+          <span class="platform-info-icon" data-tooltip="Supported platforms: TikTok, X/Twitter, Facebook, LinkedIn">ⓘ</span>
         </div>
         <div class="status-line">Status: <span id="crawler-status">Stopped</span></div>
         <div class="status-line">Posts: <span id="crawler-post-count">0</span></div>
@@ -160,8 +160,9 @@ class BaseCrawler {
       <div id="current-content-card">
         <div class="label">Currently Viewing:</div>
         <div id="current-content-text"></div>
-        <div id="already-recorded-indicator" class="already-recorded">
-          ✓ Already Recorded
+        <div id="download-status-indicator" class="download-status" style="display: none;">
+          <span id="download-status-icon">⏳</span>
+          <span id="download-status-text">Processing...</span>
         </div>
       </div>
       
@@ -589,18 +590,62 @@ class BaseCrawler {
     }
   }
 
-  showAlreadyRecordedIndicator() {
-    const indicator = document.getElementById('already-recorded-indicator');
-    if (indicator) {
+  showDownloadStatus(status, message = '') {
+    const indicator = document.getElementById('download-status-indicator');
+    const icon = document.getElementById('download-status-icon');
+    const text = document.getElementById('download-status-text');
+    
+    if (indicator && icon && text) {
       indicator.style.display = 'block';
+      
+      switch (status) {
+        case 'processing':
+          icon.textContent = '⏳';
+          text.textContent = 'Processing...';
+          indicator.className = 'download-status processing';
+          break;
+        case 'downloading':
+          icon.textContent = '⬇️';
+          text.textContent = 'Downloading...';
+          indicator.className = 'download-status downloading';
+          break;
+        case 'downloaded':
+          icon.textContent = '✅';
+          text.textContent = message || 'Downloaded';
+          indicator.className = 'download-status downloaded';
+          break;
+        case 'failed':
+          icon.textContent = '❌';
+          text.textContent = message || 'Download Failed';
+          indicator.className = 'download-status failed';
+          break;
+        case 'recorded':
+          icon.textContent = '✓';
+          text.textContent = 'Already Recorded';
+          indicator.className = 'download-status recorded';
+          break;
+        default:
+          icon.textContent = '⏳';
+          text.textContent = status;
+          indicator.className = 'download-status';
+      }
     }
   }
 
-  hideAlreadyRecordedIndicator() {
-    const indicator = document.getElementById('already-recorded-indicator');
+  hideDownloadStatus() {
+    const indicator = document.getElementById('download-status-indicator');
     if (indicator) {
       indicator.style.display = 'none';
     }
+  }
+
+  // 为了向后兼容，保留旧方法
+  showAlreadyRecordedIndicator() {
+    this.showDownloadStatus('recorded');
+  }
+
+  hideAlreadyRecordedIndicator() {
+    this.hideDownloadStatus();
   }
 
   async exportData(format) {
@@ -929,15 +974,16 @@ This system allows you to organize and categorize your downloaded videos effecti
     // Try to extract and save the post if not already crawled
     const postData = this.extractPostData(topPost);
     if (postData) {
-      if (postData.text && !this.crawledPosts.has(postData.id)) {
+      // Check if post is already crawled (either by flag or in memory)
+      if (postData.alreadyCrawled || this.crawledPosts.has(postData.id)) {
+        console.log(`[${this.platform}] Post already recorded, should scroll to next post`);
+        this.showAlreadyRecordedIndicator(); // Show indicator for already recorded posts
+        return false; // Already processed, should move to next
+      } else if (postData.text) {
         console.log(`[${this.platform}] Recording new post: ${this.formatLogText(postData.text, 50)}`);
         this.hideAlreadyRecordedIndicator(); // Hide indicator for new posts
         this.savePost(postData);
         return true; // Successfully processed new post
-      } else if (this.crawledPosts.has(postData.id)) {
-        console.log(`[${this.platform}] Post already recorded, should scroll to next post`);
-        this.showAlreadyRecordedIndicator(); // Show indicator for already recorded posts
-        return false; // Already processed, should move to next
       }
     } else {
       console.log(`[${this.platform}] Could not extract post data from current top post`);

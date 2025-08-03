@@ -4,6 +4,10 @@ class TikTokCrawler extends BaseCrawler {
     super('tiktok');
     this.currentVideoUrl = '';
     this.videoChangeObserver = null;
+    this.activeDownload = null; // Track active download to prevent duplicates
+    this.downloadInProgress = false; // Flag to prevent concurrent downloads
+    this.isProcessingVideo = false; // Flag to prevent concurrent video processing
+    this.videoProcessingTimeout = null; // Track timeout for cleanup
   }
 
   getSelectors() {
@@ -49,6 +53,7 @@ class TikTokCrawler extends BaseCrawler {
     };
   }
 
+  // 步骤1: 纯提取信息，不做下载
   async extractPostData(postElement) {
     try {
       const selectors = this.getSelectors();
@@ -79,15 +84,7 @@ class TikTokCrawler extends BaseCrawler {
       // Check both in-memory cache and database for duplicates
       if (this.crawledPosts.has(uniqueId)) {
         console.log(`[TikTok] Video already crawled in memory (ID: ${uniqueId}), skipping`);
-        
-        // Return the existing post data instead of null to allow UI updates
-        const existingPostData = {
-          id: uniqueId,
-          text: description,
-          author: { name: authorName },
-          alreadyCrawled: true
-        };
-        return existingPostData;
+        return { id: uniqueId, text: description, author: { name: authorName }, alreadyCrawled: true };
       }
       
       // Also check database in case post was crawled in a previous session
@@ -96,32 +93,17 @@ class TikTokCrawler extends BaseCrawler {
           const existingPost = await window.postsDB.getPost(uniqueId);
           if (existingPost) {
             console.log(`[TikTok] Video already exists in database (ID: ${uniqueId}), adding to memory cache and skipping`);
-            
-            // Add to memory cache so we don't need to check database again
             this.crawledPosts.add(uniqueId);
-            
-            // Return the existing post data instead of null to allow UI updates
-            const existingPostData = {
-              id: uniqueId,
-              text: description,
-              author: { name: authorName },
-              alreadyCrawled: true
-            };
-            return existingPostData;
+            return { id: uniqueId, text: description, author: { name: authorName }, alreadyCrawled: true };
           }
         } catch (error) {
           console.warn(`[TikTok] Error checking database for existing post: ${error.message}`);
-          // Continue with normal flow if database check fails
         }
       }
       
-      console.log(`[TikTok] New video detected (ID: ${uniqueId}), triggering download...`);
+      console.log(`[TikTok] New video detected (ID: ${uniqueId}), extracting full data...`);
       
-      // Immediately mark as being processed to prevent duplicate downloads
-      this.crawledPosts.add(uniqueId);
-      console.log(`[TikTok] Marked video as being processed: ${uniqueId}`);
-      
-      // Extract additional data first so we can generate meaningful filename
+      // Extract additional data
       const avatar = this.extractTikTokAvatar(postElement);
       const profileUrl = this.extractTikTokProfileUrl(postElement);
       const metrics = this.extractTikTokMetrics(postElement);
@@ -135,40 +117,7 @@ class TikTokCrawler extends BaseCrawler {
       const videoUrl = videoElement ? videoElement.src || videoElement.currentSrc : '';
       const videoDuration = videoElement ? videoElement.duration : 0;
       
-      // Create preliminary post data for filename generation
-      const preliminaryPostData = {
-        id: uniqueId,
-        platform: this.platform,
-        company: 'NA',
-        author: {
-          name: authorName,
-          avatar: avatar,
-          profileUrl: profileUrl
-        },
-        text: description,
-        transcript: transcript,
-        timestamp: timestamp,
-        url: window.location.href,
-        videoUrl: videoUrl,
-        videoDuration: videoDuration,
-        music: music,
-        effects: effects,
-        location: location,
-        metrics: metrics,
-        hashtags: hashtags,
-        mentions: mentions
-      };
-      
-      // Use custom download approach for meaningful filenames
-      console.log('[TikTok] Attempting custom download with meaningful filename');
-      const downloadResult = await this.attemptCustomDownload(preliminaryPostData);
-      
-      if (!downloadResult.success) {
-        console.log('[TikTok] Custom download failed, falling back to native download');
-        this.triggerNativeDownload(preliminaryPostData);
-      }
-      
-      // Create final post data
+      // Create post data (NO download here)
       const postData = {
         id: uniqueId,
         platform: this.platform,
@@ -183,12 +132,6 @@ class TikTokCrawler extends BaseCrawler {
         timestamp: timestamp,
         url: currentVideoUrl,
         crawledAt: new Date().toISOString(),
-        downloaded: true, // Mark that we triggered native download
-        
-        // Filename information for matching downloaded files
-        suggestedFilename: this.generateVideoFilename(preliminaryPostData),
-        actualFilename: downloadResult.success ? downloadResult.filename : null,
-        downloadMethod: downloadResult.success ? 'custom' : 'native',
         
         // TikTok-specific fields
         videoUrl: videoUrl,
@@ -202,10 +145,16 @@ class TikTokCrawler extends BaseCrawler {
         
         // Social elements
         hashtags: hashtags,
-        mentions: mentions
+        mentions: mentions,
+        
+        // Download fields - will be filled later
+        downloaded: false,
+        suggestedFilename: this.generateVideoFilename({ id: uniqueId }),
+        actualFilename: null,
+        downloadMethod: null
       };
       
-      console.log(`[TikTok] Video data created and download triggered for: "${this.formatLogText(description, 40)}"`);
+      console.log(`[TikTok] Video data extracted for: "${this.formatLogText(description, 40)}"`);
       return postData;
       
     } catch (error) {
@@ -867,6 +816,9 @@ class TikTokCrawler extends BaseCrawler {
       // Clear any cached content when video switches
       this.updateCurrentContent('Loading new video...');
       
+      // Stop any ongoing downloads to prevent duplicates
+      this.cleanupActiveDownloads();
+      
       // Add longer delay for video switching to allow new content to load
       setTimeout(() => {
         if (this.isRunning) { // Check if still running before processing
@@ -878,12 +830,13 @@ class TikTokCrawler extends BaseCrawler {
       console.log('[TikTok] First time processing video on single video page');
       this.currentVideoUrl = currentUrl;
       
-      // Add delay to allow video element to load if page just loaded
+      // Add longer delay for first video to ensure everything is loaded
       setTimeout(() => {
         if (this.isRunning) { // Check if still running before processing
+          console.log('[TikTok] Processing first video with extended wait time');
           this.processTikTokVideo();
         }
-      }, 1500); // Slightly increased initial delay
+      }, 4000); // Extended delay for first video to ensure proper loading
     } else {
       // Same video - don't process repeatedly to avoid infinite loops
       console.log('[TikTok] Same video, skipping processing to avoid infinite loop');
@@ -891,111 +844,131 @@ class TikTokCrawler extends BaseCrawler {
     }
   }
 
-  // Process the current TikTok video (different from feed-based processTopPost)
+  // 清晰的线性流程: extract → save to DB → download → wait → next
   async processTikTokVideo() {
     try {
-      // Wait for video element to be available
-      await this.waitForVideoElement();
+      console.log('[TikTok] ==> 开始处理视频');
       
-      // For TikTok, we find the main video container instead of looking for "top post"
+      // 等待视频元素加载
+      await this.waitForVideoElement();
       const videoContainer = this.findTikTokVideoContainer();
       
       if (!videoContainer) {
-        console.log('[TikTok] No video container found on page');
+        console.log('[TikTok] No video container found');
         this.updateCurrentContent('No video found');
         return false;
       }
       
-      console.log('[TikTok] Found video container, extracting data...');
-      
-      // Wait a bit more for dynamic content to load after video switch
-      // Always wait for content to load when processing
+      // 等待内容加载
       await new Promise(resolve => setTimeout(resolve, 1500));
       
-      // Extract display data for UI - this should be fresh for new videos
-      const displayData = this.extractPostDataForDisplay(videoContainer);
-      if (displayData && displayData.text) {
-        console.log(`[TikTok] Updating current content: "${this.formatLogText(displayData.text, 40)}"`);
-        this.updateCurrentContent(displayData.text);
-      } else {
-        console.log('[TikTok] No display data extracted, using default');
-        this.updateCurrentContent('TikTok video detected');
-      }
-      
-      // Try to extract and save the video data
+      // Step 1: Extract信息
+      console.log('[TikTok] Step 1: 提取视频信息...');
       const postData = await this.extractPostData(videoContainer);
-      if (postData) {
-        if (postData.alreadyCrawled) {
-          // Video was already crawled, but we got data for UI update
-          console.log(`[TikTok] Video already recorded (ID: ${postData.id}), showing indicator`);
-          this.showAlreadyRecordedIndicator();
-          
-          // Move to next video after a longer delay to simulate human behavior
-          const randomDelay = 3000 + Math.random() * 2000; // 3-5 second delay
-          setTimeout(() => {
-            if (this.isRunning) { // Check if still running before moving
-              console.log('[TikTok] Moving to next video (already crawled)');
-              this.findNextPostToScrollTo();
-            } else {
-              console.log('[TikTok] Crawler stopped, not moving to next video');
-            }
-          }, randomDelay);
-          
-          return false;
-        } else if (!this.crawledPosts.has(postData.id)) {
-          console.log(`[TikTok] Recording new video: ${this.formatLogText(postData.text || postData.url, 50)}`);
-          this.hideAlreadyRecordedIndicator();
-          await this.savePost(postData);
-          
-          // Move to next video after processing current one with longer delay
-          const randomDelay = 3000 + Math.random() * 2000; // 3-5 second delay
-          setTimeout(() => {
-            if (this.isRunning) { // Check if still running before moving
-              console.log('[TikTok] Video saved, moving to next video');
-              this.findNextPostToScrollTo();
-            } else {
-              console.log('[TikTok] Crawler stopped, not moving to next video');
-            }
-          }, randomDelay);
-          
-          return true;
-        } else {
-          console.log(`[TikTok] Video already recorded (ID: ${postData.id})`);
-          this.showAlreadyRecordedIndicator();
-          
-          // Move to next video after a longer delay
-          const randomDelay = 3000 + Math.random() * 2000; // 3-5 second delay
-          setTimeout(() => {
-            if (this.isRunning) { // Check if still running before moving
-              console.log('[TikTok] Moving to next video (already in memory)');
-              this.findNextPostToScrollTo();
-            } else {
-              console.log('[TikTok] Crawler stopped, not moving to next video');
-            }
-          }, randomDelay);
-          
-          return false;
-        }
-      } else {
-        console.log('[TikTok] Could not extract video data');
+      
+      if (!postData) {
+        console.log('[TikTok] ❌ 提取失败');
         this.updateCurrentContent('Failed to extract video data');
-        
-        // Still try to move to next video even if extraction failed
-        setTimeout(() => {
-          if (this.isRunning) { // Check if still running before moving
-            console.log('[TikTok] Extraction failed, trying next video');
-            this.findNextPostToScrollTo();
-          } else {
-            console.log('[TikTok] Crawler stopped, not trying next video');
-          }
-        }, 5000); // Increased delay for failed extractions
-        
+        await this.waitAndMoveToNext(5000);
         return false;
       }
+      
+      // 更新UI显示
+      this.updateCurrentContent(postData.text || 'TikTok video detected');
+      
+      if (postData.alreadyCrawled) {
+        console.log('[TikTok] ⏭️ 视频已处理过，跳过');
+        this.showDownloadStatus('recorded', 'Already recorded');
+        await this.waitAndMoveToNext();
+        return false;
+      }
+      
+      // Step 2: 保存到数据库
+      console.log('[TikTok] Step 2: 保存到数据库...');
+      const saveSuccess = await this.savePost(postData);
+      
+      if (!saveSuccess) {
+        console.log('[TikTok] ❌ 数据库保存失败');
+        this.showDownloadStatus('failed', 'Failed to save to database');
+        await this.waitAndMoveToNext();
+        return false;
+      }
+      
+      console.log('[TikTok] ✅ 数据库保存成功');
+      
+      // Step 3: 下载视频
+      console.log('[TikTok] Step 3: 下载视频...');
+      await this.downloadVideo(postData);
+      
+      // Step 4: 随机等待到下一个
+      console.log('[TikTok] Step 4: 等待后移动到下一个视频...');
+      await this.waitAndMoveToNext();
+      
+      return true;
+      
     } catch (error) {
-      console.error('[TikTok] Error processing video:', error);
+      console.error('[TikTok] 处理视频时出错:', error);
       this.updateCurrentContent('Error processing video');
+      await this.waitAndMoveToNext(5000);
       return false;
+    }
+  }
+  
+  // 步骤3: 下载视频
+  async downloadVideo(postData) {
+    try {
+      this.showDownloadStatus('downloading', 'Downloading video...');
+      
+      // 尝试自定义下载
+      console.log('[TikTok] 尝试自定义下载...');
+      const downloadResult = await this.attemptCustomDownload(postData);
+      
+      if (downloadResult.success) {
+        console.log('[TikTok] ✅ 自定义下载成功:', downloadResult.filename);
+        this.showDownloadStatus('downloaded', `Downloaded: ${downloadResult.filename}`);
+        
+        // 更新数据库中的下载信息
+        postData.downloaded = true;
+        postData.actualFilename = downloadResult.filename;
+        postData.downloadMethod = downloadResult.method;
+        await window.postsDB.updatePost(postData);
+        
+      } else {
+        console.log('[TikTok] ⚠️ 自定义下载失败，尝试原生下载...');
+        const nativeSuccess = this.triggerNativeDownload(postData);
+        
+        if (nativeSuccess) {
+          console.log('[TikTok] ✅ 原生下载已触发');
+          this.showDownloadStatus('downloaded', 'Downloaded via browser');
+          
+          // 更新数据库
+          postData.downloaded = true;
+          postData.downloadMethod = 'native';
+          await window.postsDB.updatePost(postData);
+        } else {
+          console.log('[TikTok] ❌ 所有下载方式失败');
+          this.showDownloadStatus('failed', 'Download failed');
+        }
+      }
+      
+    } catch (error) {
+      console.error('[TikTok] 下载过程出错:', error);
+      this.showDownloadStatus('failed', 'Download error');
+    }
+  }
+  
+  // 步骤4: 等待并移动到下一个视频
+  async waitAndMoveToNext(baseDelay = 3000) {
+    const randomDelay = baseDelay + Math.random() * 2000; // 添加随机性
+    console.log(`[TikTok] 等待 ${Math.round(randomDelay)}ms 后移动到下一个视频`);
+    
+    await new Promise(resolve => setTimeout(resolve, randomDelay));
+    
+    if (this.isRunning) {
+      console.log('[TikTok] 移动到下一个视频');
+      this.findNextPostToScrollTo();
+    } else {
+      console.log('[TikTok] 爬虫已停止，不移动到下一个视频');
     }
   }
   
@@ -1116,7 +1089,7 @@ class TikTokCrawler extends BaseCrawler {
       const csvId = postData.id;
       
       if (csvId) {
-        const filename = `${csvId}.mp4`;
+        const filename = `${csvId}.mp4`; // Prefer MP4 for user preference
         console.log(`[TikTok] Generated filename using CSV ID: ${filename}`);
         return filename;
       }
@@ -1246,7 +1219,8 @@ class TikTokCrawler extends BaseCrawler {
             console.log(`[TikTok] Successfully captured blob video, size: ${videoBlob.size} bytes`);
             
             this.downloadBlob(videoBlob, suggestedFilename);
-            return { success: true, filename: suggestedFilename };
+            console.log(`[TikTok] Blob download initiated: ${suggestedFilename}`);
+            return { success: true, filename: suggestedFilename, method: 'blob' };
           } else {
             console.log('[TikTok] Blob fetch returned error status:', response.status);
           }
@@ -1262,8 +1236,15 @@ class TikTokCrawler extends BaseCrawler {
           const blobResponse = await this.extractBlobFromMediaSource(videoElement);
           if (blobResponse) {
             console.log(`[TikTok] MediaSource extraction successful, size: ${blobResponse.size} bytes`);
-            this.downloadBlob(blobResponse, suggestedFilename);
-            return { success: true, filename: suggestedFilename };
+            // Adjust filename if using WebM format
+            let finalFilename = suggestedFilename;
+            if (blobResponse.type && blobResponse.type.includes('webm')) {
+              finalFilename = suggestedFilename.replace('.mp4', '.webm');
+              console.log('[TikTok] Using WebM format, adjusted filename to:', finalFilename);
+            }
+            this.downloadBlob(blobResponse, finalFilename);
+            console.log(`[TikTok] MediaSource download initiated: ${finalFilename}`);
+            return { success: true, filename: finalFilename, method: 'mediarecorder' };
           }
         }
       } catch (msError) {
@@ -1283,7 +1264,8 @@ class TikTokCrawler extends BaseCrawler {
             console.log(`[TikTok] Downloaded video blob, size: ${videoBlob.size} bytes`);
             
             this.downloadBlob(videoBlob, suggestedFilename);
-            return { success: true, filename: suggestedFilename };
+            console.log(`[TikTok] Direct fetch download initiated: ${suggestedFilename}`);
+            return { success: true, filename: suggestedFilename, method: 'direct' };
           }
         } catch (corsError) {
           console.log('[TikTok] Direct fetch failed due to CORS:', corsError.message);
@@ -1314,7 +1296,8 @@ class TikTokCrawler extends BaseCrawler {
                 console.log(`[TikTok] Downloaded video from source, size: ${videoBlob.size} bytes`);
                 
                 this.downloadBlob(videoBlob, suggestedFilename);
-                return { success: true, filename: suggestedFilename };
+                console.log(`[TikTok] Source download initiated: ${suggestedFilename}`);
+                return { success: true, filename: suggestedFilename, method: 'source' };
               }
             } catch (sourceError) {
               console.log('[TikTok] Source fetch failed:', sourceError.message);
@@ -1326,19 +1309,29 @@ class TikTokCrawler extends BaseCrawler {
         console.log('[TikTok] Source strategy failed:', sourceError.message);
       }
       
-      // Strategy 5: Try canvas capture as absolute fallback (video frames only)
+      // Strategy 5: Try MediaRecorder directly on video element
       try {
-        console.log('[TikTok] Attempting canvas capture as fallback');
-        const canvasBlob = await this.captureVideoFrame(videoElement, suggestedFilename);
-        if (canvasBlob) {
-          return { success: true, filename: suggestedFilename.replace('.mp4', '.png') };
+        console.log('[TikTok] Attempting direct MediaRecorder on video element');
+        const recordedBlob = await this.recordVideoDirectly(videoElement);
+        if (recordedBlob && recordedBlob.size > 50000) { // Accept files > 50KB (adjusted for network variations)
+          // Check if we need to adjust filename for WebM
+          let finalFilename = suggestedFilename;
+          if (recordedBlob.type && recordedBlob.type.includes('webm')) {
+            finalFilename = suggestedFilename.replace('.mp4', '.webm');
+            console.log('[TikTok] Recording is WebM, adjusted filename to:', finalFilename);
+          }
+          this.downloadBlob(recordedBlob, finalFilename);
+          console.log(`[TikTok] Direct recording download initiated: ${finalFilename}`);
+          return { success: true, filename: finalFilename, method: 'recording' };
+        } else {
+          console.log(`[TikTok] Direct recording blob too small: ${recordedBlob?.size || 0} bytes`);
         }
-      } catch (canvasError) {
-        console.log('[TikTok] Canvas capture failed:', canvasError.message);
+      } catch (recordError) {
+        console.log('[TikTok] Direct recording failed:', recordError.message);
       }
       
       console.log('[TikTok] All custom download strategies failed');
-      return { success: false, filename: null };
+      return { success: false, filename: null, method: 'none', error: 'All strategies failed' };
       
     } catch (error) {
       console.error('[TikTok] Custom download error:', error);
@@ -1360,28 +1353,118 @@ class TikTokCrawler extends BaseCrawler {
           
           return new Promise((resolve, reject) => {
             const chunks = [];
-            const mediaRecorder = new MediaRecorder(stream);
+            // Try MP4 first, fall back to WebM if not supported
+            let mediaRecorder;
+            try {
+              if (MediaRecorder.isTypeSupported('video/mp4')) {
+                mediaRecorder = new MediaRecorder(stream, {
+                  mimeType: 'video/mp4'
+                });
+                console.log('[TikTok] Using MP4 recording format');
+              } else {
+                throw new Error('MP4 not supported');
+              }
+            } catch (mp4Error) {
+              console.log('[TikTok] MP4 not supported, using WebM:', mp4Error.message);
+              mediaRecorder = new MediaRecorder(stream, {
+                mimeType: 'video/webm;codecs=vp8'
+              });
+            }
             
             mediaRecorder.ondataavailable = (event) => {
               if (event.data.size > 0) {
                 chunks.push(event.data);
+                console.log(`[TikTok] Received chunk: ${event.data.size} bytes`);
               }
             };
             
             mediaRecorder.onstop = () => {
-              const videoBlob = new Blob(chunks, { type: 'video/mp4' });
-              resolve(videoBlob);
+              const videoBlob = new Blob(chunks, { type: 'video/webm' });
+              console.log(`[TikTok] MediaRecorder stopped, total size: ${videoBlob.size} bytes`);
+              if (videoBlob.size < 50000) { // Reject very small files (likely corrupted)
+                console.log('[TikTok] Recording too small, likely corrupted');
+                resolve(null);
+              } else {
+                resolve(videoBlob);
+              }
             };
             
             mediaRecorder.onerror = (error) => {
+              console.log('[TikTok] MediaRecorder error:', error);
               reject(error);
             };
             
-            // Record for a short duration to capture current video
-            mediaRecorder.start();
-            setTimeout(() => {
-              mediaRecorder.stop();
-            }, 3000); // Record for 3 seconds
+            // Start recording
+            mediaRecorder.start(1000); // Request data every second
+            
+            // Monitor video loading and playback state
+            let recordingTimeout;
+            let lastChunkTime = Date.now();
+            let totalChunks = 0;
+            
+            // Track chunk receiving for monitoring
+            mediaRecorder.ondataavailable = (event) => {
+              if (event.data.size > 0) {
+                chunks.push(event.data);
+                lastChunkTime = Date.now();
+                totalChunks++;
+                console.log(`[TikTok] Chunk ${totalChunks}: ${event.data.size} bytes`);
+              }
+            };
+            
+            // Stop recording when video ends or pauses for too long
+            const checkVideoState = () => {
+              if (mediaRecorder.state !== 'recording') return;
+              
+              // Stop if video ended
+              if (videoElement.ended) {
+                console.log('[TikTok] Video ended, stopping recording');
+                mediaRecorder.stop();
+                return;
+              }
+              
+              // Stop if no chunks received for 5 seconds (network issue)
+              if (Date.now() - lastChunkTime > 5000 && totalChunks > 0) {
+                console.log('[TikTok] No data received for 5s, stopping recording');
+                mediaRecorder.stop();
+                return;
+              }
+              
+              // Stop if recording too long (30s max)
+              if (Date.now() - lastChunkTime > 30000) {
+                console.log('[TikTok] Recording timeout (30s), stopping');
+                mediaRecorder.stop();
+                return;
+              }
+              
+              // Continue monitoring
+              recordingTimeout = setTimeout(checkVideoState, 1000);
+            };
+            
+            // Start monitoring
+            recordingTimeout = setTimeout(checkVideoState, 1000);
+            
+            // Cleanup timeout on stop
+            mediaRecorder.onstop = () => {
+              if (recordingTimeout) {
+                clearTimeout(recordingTimeout);
+              }
+              // Use appropriate MIME type based on what MediaRecorder used
+              const mimeType = mediaRecorder.mimeType || 'video/mp4';
+              const videoBlob = new Blob(chunks, { type: mimeType });
+              
+              // Update filename extension based on actual format
+              if (mimeType.includes('webm')) {
+                console.log('[TikTok] Recording is WebM format, will adjust filename');
+              }
+              console.log(`[TikTok] MediaRecorder stopped, total size: ${videoBlob.size} bytes`);
+              if (videoBlob.size < 50000) { // Reject very small files (likely corrupted)
+                console.log('[TikTok] Recording too small, likely corrupted');
+                resolve(null);
+              } else {
+                resolve(videoBlob);
+              }
+            };
           });
         }
       }
@@ -1393,31 +1476,133 @@ class TikTokCrawler extends BaseCrawler {
     }
   }
   
-  // Capture single video frame as fallback
-  async captureVideoFrame(videoElement, filename) {
+  // Record video directly using MediaRecorder
+  async recordVideoDirectly(videoElement) {
     try {
+      // Create a canvas and stream it
       const canvas = document.createElement('canvas');
       const ctx = canvas.getContext('2d');
       
       canvas.width = videoElement.videoWidth || 640;
       canvas.height = videoElement.videoHeight || 480;
       
-      // Draw current video frame to canvas
-      ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
+      // Get canvas stream
+      const canvasStream = canvas.captureStream(30); // 30 FPS
       
-      return new Promise((resolve) => {
-        canvas.toBlob((blob) => {
-          if (blob) {
-            console.log(`[TikTok] Captured video frame as PNG, size: ${blob.size} bytes`);
-            this.downloadBlob(blob, filename.replace('.mp4', '.png'));
-            resolve(blob);
+      return new Promise((resolve, reject) => {
+        const chunks = [];
+        // Try MP4 first, fall back to WebM
+        let mediaRecorder;
+        try {
+          if (MediaRecorder.isTypeSupported('video/mp4')) {
+            mediaRecorder = new MediaRecorder(canvasStream, {
+              mimeType: 'video/mp4'
+            });
+            console.log('[TikTok] Using MP4 for canvas recording');
           } else {
-            resolve(null);
+            throw new Error('MP4 not supported');
           }
-        }, 'image/png');
+        } catch (mp4Error) {
+          console.log('[TikTok] MP4 not supported for canvas, using WebM:', mp4Error.message);
+          mediaRecorder = new MediaRecorder(canvasStream, {
+            mimeType: 'video/webm;codecs=vp8'
+          });
+        }
+        
+        mediaRecorder.ondataavailable = (event) => {
+          if (event.data.size > 0) {
+            chunks.push(event.data);
+          }
+        };
+        
+        mediaRecorder.onstop = () => {
+          const videoBlob = new Blob(chunks, { type: 'video/webm' });
+          console.log(`[TikTok] Direct recording complete, size: ${videoBlob.size} bytes`);
+          resolve(videoBlob);
+        };
+        
+        mediaRecorder.onerror = (error) => {
+          console.log('[TikTok] Direct recording error:', error);
+          reject(error);
+        };
+        
+        // Start recording
+        mediaRecorder.start(1000);
+        
+        // Track recording state
+        let isDrawing = true;
+        let frameCount = 0;
+        let recordingTimeout;
+        
+        // Draw video frames to canvas
+        const drawFrame = () => {
+          if (mediaRecorder.state === 'recording' && isDrawing && !videoElement.paused) {
+            ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
+            frameCount++;
+            requestAnimationFrame(drawFrame);
+          }
+        };
+        
+        drawFrame();
+        
+        // Monitor video state and stop recording intelligently
+        const checkRecordingState = () => {
+          if (mediaRecorder.state !== 'recording') return;
+          
+          // Stop if video ended
+          if (videoElement.ended) {
+            console.log('[TikTok] Video ended, stopping canvas recording');
+            isDrawing = false;
+            mediaRecorder.stop();
+            return;
+          }
+          
+          // Stop if video paused for too long (user might have scrolled)
+          if (videoElement.paused) {
+            console.log('[TikTok] Video paused, stopping canvas recording');
+            isDrawing = false;
+            mediaRecorder.stop();
+            return;
+          }
+          
+          // Stop if we have enough frames (minimum 3 seconds at 30fps = 90 frames)
+          if (frameCount > 90 && chunks.length > 0) {
+            console.log(`[TikTok] Recorded ${frameCount} frames, stopping canvas recording`);
+            isDrawing = false;
+            mediaRecorder.stop();
+            return;
+          }
+          
+          // Max recording time safety (30 seconds)
+          if (frameCount > 900) { // 30 seconds at 30fps
+            console.log('[TikTok] Max recording time reached, stopping');
+            isDrawing = false;
+            mediaRecorder.stop();
+            return;
+          }
+          
+          // Continue monitoring
+          recordingTimeout = setTimeout(checkRecordingState, 1000);
+        };
+        
+        // Start monitoring
+        recordingTimeout = setTimeout(checkRecordingState, 3000); // Start checking after 3 seconds
+        
+        // Cleanup timeout on stop
+        mediaRecorder.onstop = () => {
+          if (recordingTimeout) {
+            clearTimeout(recordingTimeout);
+          }
+          isDrawing = false;
+          // Use appropriate MIME type based on what MediaRecorder used
+          const mimeType = mediaRecorder.mimeType || 'video/mp4';
+          const videoBlob = new Blob(chunks, { type: mimeType });
+          console.log(`[TikTok] Direct recording complete, size: ${videoBlob.size} bytes`);
+          resolve(videoBlob);
+        };
       });
     } catch (error) {
-      console.log('[TikTok] Frame capture error:', error.message);
+      console.log('[TikTok] Direct recording error:', error.message);
       return null;
     }
   }
@@ -1534,6 +1719,50 @@ class TikTokCrawler extends BaseCrawler {
     } catch (error) {
       console.error('[TikTok] Error extracting display data:', error);
       return { text: 'TikTok视频', author: '' };
+    }
+  }
+  
+  // Clean up active downloads to prevent duplicates
+  cleanupActiveDownloads() {
+    try {
+      console.log('[TikTok] Cleaning up active downloads to prevent duplicates');
+      
+      // Clear download progress flag
+      this.downloadInProgress = false;
+      
+      // Clear any active download references
+      if (this.activeDownload) {
+        console.log('[TikTok] Clearing active download reference');
+        this.activeDownload = null;
+      }
+      
+      // Stop any MediaRecorder instances that might be running
+      try {
+        // Look for any active MediaRecorder instances and stop them
+        const streams = document.querySelectorAll('video').forEach(video => {
+          if (video.captureStream) {
+            try {
+              const stream = video.captureStream();
+              if (stream) {
+                stream.getTracks().forEach(track => {
+                  if (track.readyState === 'live') {
+                    console.log('[TikTok] Stopping active MediaStream track');
+                    track.stop();
+                  }
+                });
+              }
+            } catch (streamError) {
+              // Ignore stream cleanup errors
+            }
+          }
+        });
+      } catch (cleanupError) {
+        console.warn('[TikTok] Error during MediaRecorder cleanup:', cleanupError.message);
+      }
+      
+      console.log('[TikTok] Active download cleanup completed');
+    } catch (error) {
+      console.warn('[TikTok] Error during download cleanup:', error.message);
     }
   }
 }
